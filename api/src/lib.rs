@@ -24,6 +24,7 @@ pub mod error;
 pub mod fingerprint;
 pub mod fulfil;
 pub mod http;
+pub mod member;
 pub mod orders;
 pub mod paystack;
 pub mod radius;

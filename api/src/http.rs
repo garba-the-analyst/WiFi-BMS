@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::db::{audit, list_active_plans, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
+use crate::member;
 use crate::fulfil::{fulfil_payment, Fulfilment};
 use crate::orders::{create_order, order_status, CreateOrder, CreatedOrder, OrderStatus};
 use crate::paystack::{signature_is_valid, WebhookEvent};
@@ -32,6 +33,19 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/orders/:reference", get(get_order))
         .route("/v1/t/:tenant/webhooks/paystack", post(paystack_webhook))
         .route("/v1/t/:tenant/connect", post(connect_guest))
+        .route("/v1/t/:tenant/members/register", post(m_register))
+        .route("/v1/t/:tenant/members/login", post(m_login))
+        .route("/v1/t/:tenant/members/logout", post(m_logout))
+        .route("/v1/t/:tenant/members/otp/request", post(m_otp_request))
+        .route("/v1/t/:tenant/members/otp/verify", post(m_otp_verify))
+        .route("/v1/t/:tenant/members/me", get(m_me))
+        .route("/v1/t/:tenant/members/claim", post(m_claim))
+        .route("/v1/t/:tenant/members/connect", post(m_connect))
+        .route("/v1/t/:tenant/members/wallet", get(m_wallet))
+        .route("/v1/t/:tenant/members/wallet/topup", post(m_topup))
+        .route("/v1/t/:tenant/members/wallet/buy", post(m_buy))
+        .route("/v1/t/:tenant/members/devices", get(m_devices))
+        .route("/v1/t/:tenant/members/devices/swap", post(m_swap))
         .route("/v1/node/radius/authorize", post(node_authorize))
         .route("/v1/node/radius/accounting", post(node_accounting))
         // Webhook and order bodies are small. Refuse anything large before reading it.
@@ -167,4 +181,48 @@ async fn node_authorize(State(st): State<AppState>, headers: HeaderMap, Json(bod
 async fn node_accounting(State(st): State<AppState>, headers: HeaderMap, Json(body): Json<AccountingRequest>) -> Result<Json<AccountingReply>> {
     let node = radius::authenticate_node(&st, &headers).await?;
     Ok(Json(radius::accounting(&st, node, body).await?))
+}
+
+// ---- Members ---------------------------------------------------------------
+
+type Tenant = Path<String>;
+
+async fn m_register(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::Register>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::register(&st, &t, &h, b).await?))
+}
+async fn m_login(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::Login>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::login(&st, &t, &h, b).await?))
+}
+async fn m_logout(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::logout(&st, &t, &h).await?))
+}
+async fn m_otp_request(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::OtpRequest>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::otp_request(&st, &t, &h, b).await?))
+}
+async fn m_otp_verify(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::OtpVerify>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::otp_verify(&st, &t, &h, b).await?))
+}
+async fn m_me(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::me(&st, &t, &h).await?))
+}
+async fn m_claim(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::Claim>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::claim_code(&st, &t, &h, b).await?))
+}
+async fn m_connect(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::MemberConnect>) -> Result<Json<Ticket>> {
+    Ok(Json(member::connect(&st, &t, &h, b).await?))
+}
+async fn m_wallet(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::wallet(&st, &t, &h).await?))
+}
+async fn m_topup(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::TopUp>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::topup(&st, &t, &h, b).await?))
+}
+async fn m_buy(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::BuyWithWallet>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::buy_with_wallet(&st, &t, &h, b).await?))
+}
+async fn m_devices(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::devices(&st, &t, &h).await?))
+}
+async fn m_swap(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::Swap>) -> Result<Json<serde_json::Value>> {
+    Ok(Json(member::swap_device(&st, &t, &h, b).await?))
 }
