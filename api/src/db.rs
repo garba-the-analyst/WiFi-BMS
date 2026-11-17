@@ -15,21 +15,14 @@ use crate::error::{AppError, Result};
 /// row-level-security policies in the schema read it.
 pub async fn tenant_tx(pool: &PgPool, tenant: Uuid) -> Result<Transaction<'static, Postgres>> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
-        .bind(tenant.to_string())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)").bind(tenant.to_string()).execute(&mut *tx).await?;
     Ok(tx)
 }
 
 /// Find a tenant by its URL slug. Uses the one SECURITY DEFINER function that
 /// is allowed to look across tenants.
 pub async fn tenant_id_by_slug(pool: &PgPool, slug: &str) -> Result<Uuid> {
-    sqlx::query_scalar::<_, Option<Uuid>>("SELECT tenant_id_by_slug($1)")
-        .bind(slug)
-        .fetch_one(pool)
-        .await?
-        .ok_or(AppError::NotFound)
+    sqlx::query_scalar::<_, Option<Uuid>>("SELECT tenant_id_by_slug($1)").bind(slug).fetch_one(pool).await?.ok_or(AppError::NotFound)
 }
 
 /// Append to the tamper-evident audit log. The database trigger computes the
@@ -71,12 +64,7 @@ fn speed_from(row: &PgRow, prefix: &str) -> Result<Option<SpeedProfile>> {
     let prio: i16 = row.try_get(col("priority").as_str())?;
     // A burst needs all four numbers; a partly filled one is ignored.
     let burst = match (b_down, b_up, b_thr, b_time) {
-        (Some(d), Some(u), Some(t), Some(s)) => Some(Burst {
-            down_kbps: d as u32,
-            up_kbps: u as u32,
-            threshold_kbps: t as u32,
-            time_secs: s as u32,
-        }),
+        (Some(d), Some(u), Some(t), Some(s)) => Some(Burst { down_kbps: d as u32, up_kbps: u as u32, threshold_kbps: t as u32, time_secs: s as u32 }),
         _ => None,
     };
     Ok(Some(SpeedProfile { down_kbps: down as u32, up_kbps: up as u32, burst, priority: prio as u8 }))
@@ -113,8 +101,7 @@ fn plan_from(row: &PgRow) -> Result<PlanRow> {
     let speed = speed_from(row, "")?.ok_or_else(|| AppError::Internal("plan has no speed profile".into()))?;
     let fair_use = match row.try_get::<Option<i64>, _>("fup_daily_bytes")? {
         Some(daily) => {
-            let throttled = speed_from(row, "f_")?
-                .ok_or_else(|| AppError::Internal("fair-use plan has no slowed profile".into()))?;
+            let throttled = speed_from(row, "f_")?.ok_or_else(|| AppError::Internal("fair-use plan has no slowed profile".into()))?;
             Some(FairUse { daily_bytes: daily as u64, throttled })
         }
         None => None,
@@ -139,18 +126,12 @@ fn plan_from(row: &PgRow) -> Result<PlanRow> {
 
 /// Load one plan (any state). Used when fulfilling a paid order.
 pub async fn load_plan(conn: &mut PgConnection, plan_id: Uuid) -> Result<PlanRow> {
-    let row = sqlx::query(&format!("{PLAN_SELECT} WHERE p.id = $1"))
-        .bind(plan_id)
-        .fetch_optional(conn)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let row = sqlx::query(&format!("{PLAN_SELECT} WHERE p.id = $1")).bind(plan_id).fetch_optional(conn).await?.ok_or(AppError::NotFound)?;
     plan_from(&row)
 }
 
 /// Plans a customer may buy right now, cheapest first.
 pub async fn list_active_plans(conn: &mut PgConnection) -> Result<Vec<PlanRow>> {
-    let rows = sqlx::query(&format!("{PLAN_SELECT} WHERE p.is_active ORDER BY p.price_kobo, p.name"))
-        .fetch_all(conn)
-        .await?;
+    let rows = sqlx::query(&format!("{PLAN_SELECT} WHERE p.is_active ORDER BY p.price_kobo, p.name")).fetch_all(conn).await?;
     rows.iter().map(plan_from).collect()
 }

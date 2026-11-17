@@ -53,9 +53,7 @@ pub fn check_password_policy(password: &str, phone: &str) -> Result<()> {
         return Err(AppError::BadRequest("password is too long".into()));
     }
     let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
-    if password.chars().filter(char::is_ascii_digit).collect::<String>() == digits
-        || password.chars().all(|c| c == password.chars().next().unwrap())
-    {
+    if password.chars().filter(char::is_ascii_digit).collect::<String>() == digits || password.chars().all(|c| c == password.chars().next().unwrap()) {
         return Err(AppError::BadRequest("choose a password that is harder to guess".into()));
     }
     Ok(())
@@ -64,10 +62,7 @@ pub fn check_password_policy(password: &str, phone: &str) -> Result<()> {
 /// Argon2id with the crate's recommended defaults.
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| AppError::Internal(format!("password hashing failed: {e}")))
+    Argon2::default().hash_password(password.as_bytes(), &salt).map(|h| h.to_string()).map_err(|e| AppError::Internal(format!("password hashing failed: {e}")))
 }
 
 pub fn verify_password(hash: &str, password: &str) -> bool {
@@ -145,12 +140,7 @@ pub fn client_ip(headers: &HeaderMap, trust_proxy: bool) -> Option<String> {
 
 /// `Authorization: Bearer <token>` → the token.
 pub fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
+    headers.get("authorization").and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")).map(str::trim).filter(|t| !t.is_empty())
 }
 
 #[cfg(test)]

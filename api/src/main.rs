@@ -6,6 +6,7 @@
 //! * `PUBLIC_BASE_URL`       e.g. `https://wifi.example.com` (Paystack sends customers back here)
 //! * `FALLBACK_EMAIL_DOMAIN` domain for placeholder payer emails (default `guest.invalid`)
 //! * `TRUST_PROXY`          `1` when behind Caddy or another proxy you control (default off)
+//! * `CORS_ORIGINS`         comma-separated https origins allowed to call the API from a browser
 //! * `BIND`                  listen address (default `0.0.0.0:8080`)
 //!
 //! Subcommand: `create-admin <tenant-slug> <email> <role>` (password in `ADMIN_PASSWORD`).
@@ -24,15 +25,9 @@ fn env(name: &str) -> String {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
 
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .connect(&env("DATABASE_URL"))
-        .await
-        .expect("connect to the database");
+    let pool = PgPoolOptions::new().max_connections(20).connect(&env("DATABASE_URL")).await.expect("connect to the database");
 
     let state = AppState {
         pool,
@@ -69,7 +64,8 @@ async fn main() {
     let bind = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8080".into());
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind address");
     tracing::info!(%bind, "platform-api listening");
-    axum::serve(listener, router(state))
+    let origins = platform_api::harden::parse_origins(&std::env::var("CORS_ORIGINS").unwrap_or_default());
+    axum::serve(listener, platform_api::harden::harden(router(state), origins))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })

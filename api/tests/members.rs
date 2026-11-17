@@ -62,9 +62,17 @@ async fn world() -> Option<World> {
     let admin = PgPoolOptions::new().max_connections(2).connect(&admin_url).await.unwrap();
     let slug = format!("m-{}", &Uuid::new_v4().simple().to_string()[..10]);
     let tenant: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ($1, $1) RETURNING id").bind(&slug).fetch_one(&admin).await.unwrap();
-    let site: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
+    let site: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
     let _ = site;
-    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
+    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
     let plan_id: Uuid = sqlx::query_scalar(
         "INSERT INTO plans (tenant_id, name, kind, price_kobo, active_seconds, valid_seconds, speed_profile_id, device_limit, swap_cooldown_s)
          VALUES ($1, 'Hourly', 'time', 10000, 3600, 86400, $2, 1, 86400) RETURNING id",
@@ -75,7 +83,12 @@ async fn world() -> Option<World> {
     .await
     .unwrap();
     let key = MasterKey::from_hex(&"00".repeat(32)).unwrap();
-    sqlx::query("INSERT INTO tenant_secrets (tenant_id, paystack_secret_enc) VALUES ($1, $2)").bind(tenant).bind(key.encrypt("sk_test_x").unwrap()).execute(&admin).await.unwrap();
+    sqlx::query("INSERT INTO tenant_secrets (tenant_id, paystack_secret_enc) VALUES ($1, $2)")
+        .bind(tenant)
+        .bind(key.encrypt("sk_test_x").unwrap())
+        .execute(&admin)
+        .await
+        .unwrap();
     let sms = Arc::new(CaptureSms::default());
     let state = AppState {
         pool: app,
@@ -90,7 +103,11 @@ async fn world() -> Option<World> {
 
 impl World {
     async fn call(&self, method: &str, path: &str, token: Option<&str>, body: Option<Value>) -> (StatusCode, Value) {
-        let mut b = Request::builder().method(method).uri(format!("/v1/t/{}/members{}", self.slug, path)).header("content-type", "application/json").header("user-agent", "Mozilla/5.0 (Linux; Android 14; SM-S911B) Chrome/120 Mobile Safari/537.36");
+        let mut b = Request::builder()
+            .method(method)
+            .uri(format!("/v1/t/{}/members{}", self.slug, path))
+            .header("content-type", "application/json")
+            .header("user-agent", "Mozilla/5.0 (Linux; Android 14; SM-S911B) Chrome/120 Mobile Safari/537.36");
         if let Some(t) = token {
             b = b.header("authorization", format!("Bearer {t}"));
         }
@@ -108,9 +125,19 @@ impl World {
     }
 
     async fn credit(&self, token: &str, kobo: i64) {
-        let acct: Uuid = sqlx::query_scalar("SELECT account_id FROM member_sessions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 1").bind(self.tenant).fetch_one(&self.admin).await.unwrap();
+        let acct: Uuid = sqlx::query_scalar("SELECT account_id FROM member_sessions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 1")
+            .bind(self.tenant)
+            .fetch_one(&self.admin)
+            .await
+            .unwrap();
         let _ = token;
-        sqlx::query("INSERT INTO wallet_ledger (tenant_id, account_id, kind, amount_kobo, note) VALUES ($1, $2, 'adjustment', $3, 'test')").bind(self.tenant).bind(acct).bind(kobo).execute(&self.admin).await.unwrap();
+        sqlx::query("INSERT INTO wallet_ledger (tenant_id, account_id, kind, amount_kobo, note) VALUES ($1, $2, 'adjustment', $3, 'test')")
+            .bind(self.tenant)
+            .bind(acct)
+            .bind(kobo)
+            .execute(&self.admin)
+            .await
+            .unwrap();
     }
 }
 
@@ -166,7 +193,12 @@ async fn sms_code_signs_in_once_and_wrong_codes_burn_attempts() {
     let (s, _) = w.call("POST", "/otp/request", None, Some(json!({ "phone": "08011110004" }))).await;
     assert_eq!(s, StatusCode::OK);
     let text = w.sms.0.lock().unwrap().last().unwrap().1.clone();
-    let code: String = text.split_whitespace().find(|t| t.trim_end_matches('.').len() == 6 && t.trim_end_matches('.').chars().all(|c| c.is_ascii_digit())).unwrap().trim_end_matches('.').to_string();
+    let code: String = text
+        .split_whitespace()
+        .find(|t| t.trim_end_matches('.').len() == 6 && t.trim_end_matches('.').chars().all(|c| c.is_ascii_digit()))
+        .unwrap()
+        .trim_end_matches('.')
+        .to_string();
     let wrong = if code == "000000" { "111111" } else { "000000" };
     let (s, _) = w.call("POST", "/otp/verify", None, Some(json!({ "phone": "08011110004", "code": wrong }))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
@@ -181,7 +213,12 @@ async fn sms_code_is_dead_after_five_wrong_tries() {
     let Some(w) = world().await else { return };
     w.call("POST", "/otp/request", None, Some(json!({ "phone": "08011110005" }))).await;
     let text = w.sms.0.lock().unwrap().last().unwrap().1.clone();
-    let code: String = text.split_whitespace().find(|t| t.trim_end_matches('.').len() == 6 && t.trim_end_matches('.').chars().all(|c| c.is_ascii_digit())).unwrap().trim_end_matches('.').to_string();
+    let code: String = text
+        .split_whitespace()
+        .find(|t| t.trim_end_matches('.').len() == 6 && t.trim_end_matches('.').chars().all(|c| c.is_ascii_digit()))
+        .unwrap()
+        .trim_end_matches('.')
+        .to_string();
     let wrong = if code == "000000" { "111111" } else { "000000" };
     for _ in 0..5 {
         w.call("POST", "/otp/verify", None, Some(json!({ "phone": "08011110005", "code": wrong }))).await;
@@ -197,7 +234,16 @@ async fn topup_credits_once_and_buying_debits_and_grants() {
     let (s, v) = w.call("POST", "/wallet/topup", Some(&token), Some(json!({ "site": "site-1", "amount_kobo": 50000 }))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     let reference = v["reference"].as_str().unwrap().to_string();
-    let tx = VerifiedTransaction { id: "t1".into(), reference: reference.clone(), status: "success".into(), amount_kobo: 50000, currency: "NGN".into(), channel: None, fees_kobo: 0, raw: json!({}) };
+    let tx = VerifiedTransaction {
+        id: "t1".into(),
+        reference: reference.clone(),
+        status: "success".into(),
+        amount_kobo: 50000,
+        currency: "NGN".into(),
+        channel: None,
+        fees_kobo: 0,
+        raw: json!({}),
+    };
     assert!(matches!(fulfil_payment(&w.state.pool, w.tenant, &tx).await.unwrap(), Fulfilment::WalletCredited { amount_kobo: 50000 }));
     assert!(matches!(fulfil_payment(&w.state.pool, w.tenant, &tx).await.unwrap(), Fulfilment::AlreadyProcessed));
     let (_, wal) = w.call("GET", "/wallet", Some(&token), None).await;
@@ -235,7 +281,11 @@ async fn concurrent_purchases_cannot_spend_the_same_money_twice() {
         let (st, t, plan) = (w.state.clone(), token.clone(), w.plan_id);
         let slug = w.slug.clone();
         handles.push(tokio::spawn(async move {
-            let req = Request::post(format!("/v1/t/{slug}/members/wallet/buy")).header("content-type", "application/json").header("authorization", format!("Bearer {t}")).body(Body::from(json!({ "site": "site-1", "plan_id": plan }).to_string())).unwrap();
+            let req = Request::post(format!("/v1/t/{slug}/members/wallet/buy"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {t}"))
+                .body(Body::from(json!({ "site": "site-1", "plan_id": plan }).to_string()))
+                .unwrap();
             router(st).oneshot(req).await.unwrap().status()
         }));
     }
@@ -246,7 +296,11 @@ async fn concurrent_purchases_cannot_spend_the_same_money_twice() {
         }
     }
     assert_eq!(ok, 1, "one balance buys one plan");
-    let bal: i64 = sqlx::query_scalar("SELECT COALESCE(sum(amount_kobo),0)::bigint FROM wallet_ledger WHERE tenant_id = $1").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let bal: i64 = sqlx::query_scalar("SELECT COALESCE(sum(amount_kobo),0)::bigint FROM wallet_ledger WHERE tenant_id = $1")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     assert_eq!(bal, 0);
 }
 
@@ -254,7 +308,11 @@ async fn concurrent_purchases_cannot_spend_the_same_money_twice() {
 async fn a_guest_code_can_be_claimed_once() {
     let Some(w) = world().await else { return };
     let token = w.register("08011110009").await;
-    let code_id: Uuid = sqlx::query_scalar("INSERT INTO access_codes (tenant_id, code, phone) VALUES ($1, 'KKKK2222', '+2348000000000') RETURNING id").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let code_id: Uuid = sqlx::query_scalar("INSERT INTO access_codes (tenant_id, code, phone) VALUES ($1, 'KKKK2222', '+2348000000000') RETURNING id")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     let plan = serde_json::to_value(sample_plan()).unwrap();
     sqlx::query("INSERT INTO entitlements (tenant_id, plan_id, plan_snapshot, access_code_id, status, expires_at, remaining_active_seconds) VALUES ($1, $2, $3, $4, 'pending', now() + interval '30 days', 3600)")
         .bind(w.tenant).bind(w.plan_id).bind(plan).bind(code_id).execute(&w.admin).await.unwrap();
@@ -300,9 +358,16 @@ async fn a_member_gets_a_ticket_and_a_second_device_must_swap_with_cooldown() {
     assert!(t["username"].as_str().unwrap().starts_with("tk") && t["password"].as_str().unwrap().starts_with("tp_"));
 
     // Pretend the first device holds the single slot (the router link does this on authorize).
-    let dev1: Uuid = sqlx::query_scalar("SELECT id FROM devices WHERE tenant_id = $1 AND mac = 'a4:83:e7:12:34:56'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let dev1: Uuid =
+        sqlx::query_scalar("SELECT id FROM devices WHERE tenant_id = $1 AND mac = 'a4:83:e7:12:34:56'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
     let ent: Uuid = sqlx::query_scalar("SELECT id FROM entitlements WHERE tenant_id = $1").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
-    sqlx::query("INSERT INTO device_bindings (tenant_id, entitlement_id, device_id) VALUES ($1, $2, $3)").bind(w.tenant).bind(ent).bind(dev1).execute(&w.admin).await.unwrap();
+    sqlx::query("INSERT INTO device_bindings (tenant_id, entitlement_id, device_id) VALUES ($1, $2, $3)")
+        .bind(w.tenant)
+        .bind(ent)
+        .bind(dev1)
+        .execute(&w.admin)
+        .await
+        .unwrap();
     let (_, d) = w.call("GET", "/devices", Some(&token), None).await;
     assert_eq!(d["devices"].as_array().unwrap().len(), 1);
 
@@ -315,9 +380,11 @@ async fn a_member_gets_a_ticket_and_a_second_device_must_swap_with_cooldown() {
     let (s, v) = w.call("POST", "/devices/swap", Some(&token), Some(swap("3C:22:FB:00:00:01"))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     // A second swap straight away hits the 24 h cooldown.
-    let dev2: Uuid = sqlx::query_scalar("SELECT id FROM devices WHERE tenant_id = $1 AND mac = '3c:22:fb:00:00:01'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let dev2: Uuid =
+        sqlx::query_scalar("SELECT id FROM devices WHERE tenant_id = $1 AND mac = '3c:22:fb:00:00:01'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
     w.call("POST", "/connect", Some(&token), Some(json!({ "site": "site-1", "mac": "A4:83:E7:12:34:56", "accept_terms": true }))).await;
-    let (s, _) = w.call("POST", "/devices/swap", Some(&token), Some(json!({ "entitlement_id": ent, "old_device_id": dev2, "new_mac": "A4:83:E7:12:34:56" }))).await;
+    let (s, _) =
+        w.call("POST", "/devices/swap", Some(&token), Some(json!({ "entitlement_id": ent, "old_device_id": dev2, "new_mac": "A4:83:E7:12:34:56" }))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST, "cooldown");
 }
 
@@ -330,7 +397,9 @@ async fn one_member_cannot_touch_anothers_plan_or_wallet() {
     assert!(v["entitlement_id"].is_string());
     let b = w.register("08011110013").await;
     let ent: Uuid = sqlx::query_scalar("SELECT id FROM entitlements WHERE tenant_id = $1").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
-    let (s, _) = w.call("POST", "/devices/swap", Some(&b), Some(json!({ "entitlement_id": ent, "old_device_id": Uuid::new_v4(), "new_mac": "3C:22:FB:00:00:09" }))).await;
+    let (s, _) = w
+        .call("POST", "/devices/swap", Some(&b), Some(json!({ "entitlement_id": ent, "old_device_id": Uuid::new_v4(), "new_mac": "3C:22:FB:00:00:09" })))
+        .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (_, me) = w.call("GET", "/me", Some(&b), None).await;
     assert_eq!(me["entitlements"].as_array().unwrap().len(), 0);

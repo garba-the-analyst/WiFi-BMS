@@ -120,11 +120,8 @@ impl RouterOsHints {
     pub fn new(base: &str, user: &str, pass: &str) -> Self {
         // The router uses a self-signed certificate on the LAN. We still pin
         // to the router's own address, which only this machine can reach.
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .timeout(std::time::Duration::from_secs(3))
-            .build()
-            .expect("HTTP client builds");
+        let client =
+            reqwest::Client::builder().danger_accept_invalid_certs(true).timeout(std::time::Duration::from_secs(3)).build().expect("HTTP client builds");
         RouterOsHints { client, base: base.trim_end_matches('/').to_string(), user: user.into(), pass: pass.into() }
     }
 }

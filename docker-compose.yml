@@ -1,0 +1,54 @@
+# Production-style stack: PostgreSQL + API + Caddy (automatic HTTPS).
+# 1) cp .env.example .env  and fill every value
+# 2) docker compose up -d db
+# 3) docker compose run --rm migrate
+# 4) docker compose up -d api caddy
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: owner
+      POSTGRES_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD}
+      POSTGRES_DB: wifibms
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U owner -d wifibms"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    image: postgres:16
+    profiles: ["tools"]
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      PGPASSWORD: ${OWNER_DB_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+    volumes: ["./migrations:/migrations:ro", "./deploy/migrate.sh:/migrate.sh:ro"]
+    entrypoint: ["bash", "/migrate.sh", "db", "owner", "wifibms"]
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://platform_login:${APP_DB_PASSWORD}@db:5432/wifibms
+      PLATFORM_MASTER_KEY: ${PLATFORM_MASTER_KEY:?64 hex characters}
+      PUBLIC_BASE_URL: https://${PUBLIC_HOST}
+      FALLBACK_EMAIL_DOMAIN: ${PUBLIC_HOST}
+      CORS_ORIGINS: https://${PUBLIC_HOST}
+      TRUST_PROXY: "1"
+      RUST_LOG: info
+    expose: ["8080"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["80:80", "443:443"]
+    environment: { PUBLIC_HOST: "${PUBLIC_HOST}" }
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data"]
+
+volumes:
+  dbdata:
+  caddydata:

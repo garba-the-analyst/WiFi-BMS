@@ -16,11 +16,11 @@ use axum::{Json, Router};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::admin;
 use crate::db::{audit, list_active_plans, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
-use crate::admin;
-use crate::member;
 use crate::fulfil::{fulfil_payment, Fulfilment};
+use crate::member;
 use crate::orders::{create_order, order_status, CreateOrder, CreatedOrder, OrderStatus};
 use crate::paystack::{signature_is_valid, WebhookEvent};
 use crate::radius::{self, AccountingReply, AccountingRequest, AuthorizeReply, AuthorizeRequest, ConnectRequest, Ticket};
@@ -93,11 +93,7 @@ async fn plans(State(st): State<AppState>, Path((tenant, site)): Path<(String, S
     let tenant_id = tenant_id_by_slug(&st.pool, &tenant).await?;
     let mut tx = tenant_tx(&st.pool, tenant_id).await?;
     // The site must exist and be active, so a typo gives 404 rather than an empty shop.
-    sqlx::query("SELECT 1 AS ok FROM sites WHERE slug = $1 AND status = 'active'")
-        .bind(&site)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    sqlx::query("SELECT 1 AS ok FROM sites WHERE slug = $1 AND status = 'active'").bind(&site).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
     let rows = list_active_plans(&mut tx).await?;
     tx.commit().await?;
     Ok(Json(
@@ -122,11 +118,7 @@ async fn plans(State(st): State<AppState>, Path((tenant, site)): Path<(String, S
     ))
 }
 
-async fn new_order(
-    State(st): State<AppState>,
-    Path(tenant): Path<String>,
-    Json(body): Json<CreateOrder>,
-) -> Result<(StatusCode, Json<CreatedOrder>)> {
+async fn new_order(State(st): State<AppState>, Path(tenant): Path<String>, Json(body): Json<CreateOrder>) -> Result<(StatusCode, Json<CreatedOrder>)> {
     Ok((StatusCode::CREATED, Json(create_order(&st, &tenant, body).await?)))
 }
 
@@ -136,12 +128,7 @@ async fn get_order(State(st): State<AppState>, Path((tenant, reference)): Path<(
 
 /// Paystack calls this. We answer 200 only when the event is handled (or safely
 /// ignorable), so Paystack keeps retrying while we are unable to verify it.
-async fn paystack_webhook(
-    State(st): State<AppState>,
-    Path(tenant_slug): Path<String>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Result<Json<Fulfilment>> {
+async fn paystack_webhook(State(st): State<AppState>, Path(tenant_slug): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Json<Fulfilment>> {
     let tenant = tenant_id_by_slug(&st.pool, &tenant_slug).await?;
 
     let mut tx = tenant_tx(&st.pool, tenant).await?;
@@ -150,16 +137,7 @@ async fn paystack_webhook(
     // 1. Signature over the RAW bytes, before anything is parsed or trusted.
     let sig = headers.get("x-paystack-signature").and_then(|v| v.to_str().ok()).unwrap_or("");
     if !signature_is_valid(&secret, &body, sig) {
-        audit(
-            &mut tx,
-            tenant,
-            "system",
-            None,
-            "payment.webhook_rejected",
-            None,
-            serde_json::json!({ "reason": "bad_signature", "bytes": body.len() }),
-        )
-        .await?;
+        audit(&mut tx, tenant, "system", None, "payment.webhook_rejected", None, serde_json::json!({ "reason": "bad_signature", "bytes": body.len() })).await?;
         tx.commit().await?;
         return Err(AppError::Unauthorised);
     }
@@ -183,12 +161,7 @@ async fn paystack_webhook(
 }
 
 /// Guest sign-in: access code in, hotspot ticket out.
-async fn connect_guest(
-    State(st): State<AppState>,
-    Path(tenant): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<ConnectRequest>,
-) -> Result<Json<Ticket>> {
+async fn connect_guest(State(st): State<AppState>, Path(tenant): Path<String>, headers: HeaderMap, Json(body): Json<ConnectRequest>) -> Result<Json<Ticket>> {
     let ip = crate::auth::client_ip(&headers, st.config.trust_proxy);
     Ok(Json(radius::connect_with_code(&st, &tenant, &headers, ip.as_deref(), body).await?))
 }

@@ -131,8 +131,14 @@ mod tests {
         let r = to_accounting(&b).unwrap();
         assert_eq!((r.status.as_str(), r.bytes_in, r.bytes_out, r.session_secs), ("interim", 1000, 5000, 60));
         assert_eq!(r.ssid.as_deref(), Some("Minna-WiFi"));
-        assert_eq!(to_accounting(&fr(&[("Acct-Status-Type", "Start"), ("Acct-Session-Id", "1"), ("User-Name", "u"), ("Calling-Station-Id", "m")])).unwrap().status, "start");
-        assert_eq!(to_accounting(&fr(&[("Acct-Status-Type", "Stop"), ("Acct-Session-Id", "1"), ("User-Name", "u"), ("Calling-Station-Id", "m")])).unwrap().status, "stop");
+        assert_eq!(
+            to_accounting(&fr(&[("Acct-Status-Type", "Start"), ("Acct-Session-Id", "1"), ("User-Name", "u"), ("Calling-Station-Id", "m")])).unwrap().status,
+            "start"
+        );
+        assert_eq!(
+            to_accounting(&fr(&[("Acct-Status-Type", "Stop"), ("Acct-Session-Id", "1"), ("User-Name", "u"), ("Calling-Station-Id", "m")])).unwrap().status,
+            "stop"
+        );
         assert!(to_accounting(&fr(&[("Acct-Status-Type", "Accounting-On")])).is_none());
     }
 

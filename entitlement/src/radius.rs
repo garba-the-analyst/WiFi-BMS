@@ -21,14 +21,7 @@ pub fn mikrotik_rate_limit(speed: &SpeedProfile) -> String {
         None => format!("{}k/{}k", speed.up_kbps, speed.down_kbps),
         Some(b) => format!(
             "{}k/{}k {}k/{}k {}k/{}k {}/{}",
-            speed.up_kbps,
-            speed.down_kbps,
-            b.up_kbps,
-            b.down_kbps,
-            b.threshold_kbps,
-            b.threshold_kbps,
-            b.time_secs,
-            b.time_secs
+            speed.up_kbps, speed.down_kbps, b.up_kbps, b.down_kbps, b.threshold_kbps, b.threshold_kbps, b.time_secs, b.time_secs
         ),
     }
 }

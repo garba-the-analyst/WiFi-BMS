@@ -35,11 +35,7 @@ pub struct Clues<'a> {
 /// as the second hex digit being 2, 6, A or E. Phones use these when
 /// privacy features randomise the address.
 pub fn is_mac_randomised(mac: &str) -> bool {
-    mac.chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .nth(1)
-        .map(|c| matches!(c.to_ascii_uppercase(), '2' | '6' | 'A' | 'E'))
-        .unwrap_or(false)
+    mac.chars().filter(|c| c.is_ascii_hexdigit()).nth(1).map(|c| matches!(c.to_ascii_uppercase(), '2' | '6' | 'A' | 'E')).unwrap_or(false)
 }
 
 #[derive(Default)]
@@ -168,7 +164,8 @@ mod tests {
     use super::*;
 
     const ANDROID_UA: &str = "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
-    const IPHONE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
+    const IPHONE_UA: &str =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
     const WIN_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
     const MAC_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15";
 

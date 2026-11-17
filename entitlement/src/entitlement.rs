@@ -78,7 +78,7 @@ impl Entitlement {
     }
 
     fn has_budget(&self) -> bool {
-        self.remaining_active_secs.map_or(true, |s| s > 0) && self.remaining_bytes.map_or(true, |b| b > 0)
+        self.remaining_active_secs.is_none_or(|s| s > 0) && self.remaining_bytes.is_none_or(|b| b > 0)
     }
 
     /// May this purchase be used right now?
@@ -102,9 +102,7 @@ impl Entitlement {
     /// True when today's fair-use cap has been reached.
     pub fn fair_use_throttled(&self, now: UnixSecs, tz_offset_secs: i32) -> bool {
         match &self.plan.fair_use {
-            Some(fu) => {
-                self.fup_day == Some(local_day(now, tz_offset_secs)) && self.fup_bytes_today >= fu.daily_bytes
-            }
+            Some(fu) => self.fup_day == Some(local_day(now, tz_offset_secs)) && self.fup_bytes_today >= fu.daily_bytes,
             None => false,
         }
     }
@@ -185,8 +183,6 @@ pub fn select_index(entitlements: &[Entitlement], now: UnixSecs) -> Option<usize
         .iter()
         .enumerate()
         .filter(|(_, e)| e.is_usable(now))
-        .min_by(|(_, a), (_, b)| {
-            (a.expires_at, a.granted_at, &a.id).cmp(&(b.expires_at, b.granted_at, &b.id))
-        })
+        .min_by(|(_, a), (_, b)| (a.expires_at, a.granted_at, &a.id).cmp(&(b.expires_at, b.granted_at, &b.id)))
         .map(|(i, _)| i)
 }

@@ -68,17 +68,15 @@ const SELECT: &str = "
 
 fn from_row(row: &PgRow) -> Result<Loaded> {
     let id: Uuid = row.try_get("id")?;
-    let plan: Plan = serde_json::from_value(row.try_get("plan_snapshot")?)
-        .map_err(|e| AppError::Internal(format!("stored plan snapshot is unreadable: {e}")))?;
+    let plan: Plan =
+        serde_json::from_value(row.try_get("plan_snapshot")?).map_err(|e| AppError::Internal(format!("stored plan snapshot is unreadable: {e}")))?;
     let ent = Entitlement {
         id: id.to_string(),
         plan,
         status: status_from(&row.try_get::<String, _>("status")?)?,
         granted_at: row.try_get("granted")?,
         activated_at: row.try_get("activated")?,
-        expires_at: row
-            .try_get::<Option<i64>, _>("expires")?
-            .ok_or_else(|| AppError::Internal("entitlement has no expiry".into()))?,
+        expires_at: row.try_get::<Option<i64>, _>("expires")?.ok_or_else(|| AppError::Internal("entitlement has no expiry".into()))?,
         remaining_active_secs: row.try_get::<Option<i32>, _>("remaining_active_seconds")?.map(|v| v as u32),
         remaining_bytes: row.try_get::<Option<i64>, _>("remaining_bytes")?.map(|v| v as u64),
         fup_day: row.try_get::<Option<i32>, _>("fup_day")?.map(i64::from),
@@ -94,21 +92,15 @@ pub async fn load_usable_for_update(conn: &mut PgConnection, subject: Subject) -
         Subject::Account(i) => ("account_id", i),
         Subject::Code(i) => ("access_code_id", i),
     };
-    let rows = sqlx::query(&format!(
-        "{SELECT} WHERE {col} = $1 AND status IN ('pending', 'active') ORDER BY expires_at, granted_at FOR UPDATE"
-    ))
-    .bind(id)
-    .fetch_all(conn)
-    .await?;
+    let rows = sqlx::query(&format!("{SELECT} WHERE {col} = $1 AND status IN ('pending', 'active') ORDER BY expires_at, granted_at FOR UPDATE"))
+        .bind(id)
+        .fetch_all(conn)
+        .await?;
     rows.iter().map(from_row).collect()
 }
 
 pub async fn load_for_update(conn: &mut PgConnection, id: Uuid) -> Result<Loaded> {
-    let row = sqlx::query(&format!("{SELECT} WHERE id = $1 FOR UPDATE"))
-        .bind(id)
-        .fetch_optional(conn)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let row = sqlx::query(&format!("{SELECT} WHERE id = $1 FOR UPDATE")).bind(id).fetch_optional(conn).await?.ok_or(AppError::NotFound)?;
     from_row(&row)
 }
 
@@ -142,17 +134,9 @@ pub async fn save(conn: &mut PgConnection, l: &Loaded) -> Result<()> {
 
 /// Grant a new entitlement for a paid order, through the engine, and store it.
 /// The plan is frozen into `plan_snapshot` so later edits never change it.
-pub async fn grant(
-    conn: &mut PgConnection,
-    tenant: Uuid,
-    order_id: Uuid,
-    plan_id: Uuid,
-    plan: &Plan,
-    subject: Subject,
-) -> Result<Uuid> {
+pub async fn grant(conn: &mut PgConnection, tenant: Uuid, order_id: Uuid, plan_id: Uuid, plan: &Plan, subject: Subject) -> Result<Uuid> {
     let id = Uuid::new_v4();
-    let ent = Entitlement::grant(id.to_string(), plan.clone(), now_secs())
-        .map_err(|e| AppError::Internal(format!("cannot grant plan: {e:?}")))?;
+    let ent = Entitlement::grant(id.to_string(), plan.clone(), now_secs()).map_err(|e| AppError::Internal(format!("cannot grant plan: {e:?}")))?;
     let snapshot = serde_json::to_value(plan).map_err(|e| AppError::Internal(e.to_string()))?;
     let (account_id, code_id) = match subject {
         Subject::Account(a) => (Some(a), None),

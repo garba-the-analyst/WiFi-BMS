@@ -222,10 +222,7 @@ pub async fn logout(st: &AppState, tenant_slug: &str, headers: &HeaderMap) -> Re
     let (tenant, _) = authenticate(st, tenant_slug, headers).await?;
     let token = bearer(headers).ok_or(AppError::Unauthorised)?;
     let mut tx = tenant_tx(&st.pool, tenant).await?;
-    sqlx::query("UPDATE member_sessions SET revoked_at = now() WHERE token_hash = $1")
-        .bind(sha256_hex(token))
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("UPDATE member_sessions SET revoked_at = now() WHERE token_hash = $1").bind(sha256_hex(token)).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(json!({ "ok": true }))
 }
@@ -330,10 +327,7 @@ pub async fn otp_verify(st: &AppState, tenant_slug: &str, headers: &HeaderMap, r
 // ---------------------------------------------------------------------------
 
 async fn balance(conn: &mut PgConnection, account: Uuid) -> Result<i64> {
-    Ok(sqlx::query_scalar("SELECT COALESCE(sum(amount_kobo), 0)::bigint FROM wallet_ledger WHERE account_id = $1")
-        .bind(account)
-        .fetch_one(conn)
-        .await?)
+    Ok(sqlx::query_scalar("SELECT COALESCE(sum(amount_kobo), 0)::bigint FROM wallet_ledger WHERE account_id = $1").bind(account).fetch_one(conn).await?)
 }
 
 pub async fn me(st: &AppState, tenant_slug: &str, headers: &HeaderMap) -> Result<Value> {
@@ -424,7 +418,16 @@ pub async fn topup(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: T
     let mode: String = t.try_get("payment_mode")?;
     let sub: Option<String> = t.try_get("paystack_subaccount")?;
     let secret = st.load_paystack_secret(&mut tx, tenant).await?;
-    audit(&mut tx, tenant, "account", Some(&acct.to_string()), "wallet.topup_started", Some(("order", &order_id.to_string())), json!({ "amount_kobo": req.amount_kobo })).await?;
+    audit(
+        &mut tx,
+        tenant,
+        "account",
+        Some(&acct.to_string()),
+        "wallet.topup_started",
+        Some(("order", &order_id.to_string())),
+        json!({ "amount_kobo": req.amount_kobo }),
+    )
+    .await?;
     tx.commit().await?;
 
     let em = payer_email(email.as_deref(), &phone, &st.config.fallback_email_domain);
@@ -444,11 +447,7 @@ pub async fn topup(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: T
         .await;
     let mut tx = tenant_tx(&st.pool, tenant).await?;
     let status = if init.is_ok() { "pending" } else { "failed" };
-    sqlx::query("UPDATE orders SET status = $2::order_status WHERE id = $1 AND status = 'created'")
-        .bind(order_id)
-        .bind(status)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("UPDATE orders SET status = $2::order_status WHERE id = $1 AND status = 'created'").bind(order_id).bind(status).execute(&mut *tx).await?;
     tx.commit().await?;
     let i = init?;
     Ok(json!({ "reference": reference, "authorization_url": i.authorization_url, "amount_kobo": req.amount_kobo }))
@@ -506,8 +505,16 @@ pub async fn buy_with_wallet(st: &AppState, tenant_slug: &str, headers: &HeaderM
         .execute(&mut *tx)
         .await?;
     let ent = grant(&mut tx, tenant, order_id, req.plan_id, &plan.plan, Subject::Account(acct)).await?;
-    audit(&mut tx, tenant, "account", Some(&acct.to_string()), "wallet.purchase", Some(("order", &order_id.to_string())),
-        json!({ "plan": plan.name, "amount_kobo": plan.price_kobo, "entitlement": ent })).await?;
+    audit(
+        &mut tx,
+        tenant,
+        "account",
+        Some(&acct.to_string()),
+        "wallet.purchase",
+        Some(("order", &order_id.to_string())),
+        json!({ "plan": plan.name, "amount_kobo": plan.price_kobo, "entitlement": ent }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(json!({ "reference": reference, "entitlement_id": ent, "balance_kobo": bal - plan.price_kobo }))
 }
@@ -528,10 +535,7 @@ pub async fn claim_code(st: &AppState, tenant_slug: &str, headers: &HeaderMap, r
     limit(st, format!("claim:{acct}"), 10, 600)?;
     let code = normalise_code(&req.code);
     let mut tx = tenant_tx(&st.pool, tenant).await?;
-    let row = sqlx::query("SELECT id, claimed_by_account_id FROM access_codes WHERE code = $1 FOR UPDATE")
-        .bind(&code)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let row = sqlx::query("SELECT id, claimed_by_account_id FROM access_codes WHERE code = $1 FOR UPDATE").bind(&code).fetch_optional(&mut *tx).await?;
     let Some(row) = row else {
         return Err(AppError::BadRequest("that code was not recognised".into()));
     };
@@ -546,7 +550,16 @@ pub async fn claim_code(st: &AppState, tenant_slug: &str, headers: &HeaderMap, r
         .await?
         .rows_affected();
     sqlx::query("UPDATE access_codes SET claimed_by_account_id = $1 WHERE id = $2").bind(acct).bind(code_id).execute(&mut *tx).await?;
-    audit(&mut tx, tenant, "account", Some(&acct.to_string()), "member.code_claimed", Some(("access_code", &code_id.to_string())), json!({ "entitlements": moved })).await?;
+    audit(
+        &mut tx,
+        tenant,
+        "account",
+        Some(&acct.to_string()),
+        "member.code_claimed",
+        Some(("access_code", &code_id.to_string())),
+        json!({ "entitlements": moved }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(json!({ "moved": moved }))
 }
@@ -631,10 +644,12 @@ pub async fn swap_device(st: &AppState, tenant_slug: &str, headers: &HeaderMap, 
 
     let mut slots = DeviceSlots::new(l.ent.plan.device_limit, l.ent.plan.swap_cooldown_secs);
     slots.last_swap_at = l.last_swap_at;
-    let bound = sqlx::query("SELECT device_id::text AS d, extract(epoch FROM bound_at)::bigint AS at FROM device_bindings WHERE entitlement_id = $1 AND released_at IS NULL")
-        .bind(l.id)
-        .fetch_all(&mut *tx)
-        .await?;
+    let bound = sqlx::query(
+        "SELECT device_id::text AS d, extract(epoch FROM bound_at)::bigint AS at FROM device_bindings WHERE entitlement_id = $1 AND released_at IS NULL",
+    )
+    .bind(l.id)
+    .fetch_all(&mut *tx)
+    .await?;
     for b in &bound {
         slots.bindings.push(entitlement::slots::Binding { device_id: b.try_get("d")?, bound_at: b.try_get("at")? });
     }
@@ -654,8 +669,16 @@ pub async fn swap_device(st: &AppState, tenant_slug: &str, headers: &HeaderMap, 
         .await?;
     l.last_swap_at = slots.last_swap_at;
     save(&mut tx, &l).await?;
-    audit(&mut tx, tenant, "account", Some(&acct.to_string()), "member.device_swapped", Some(("entitlement", &l.id.to_string())),
-        json!({ "old": req.old_device_id, "new": new_dev })).await?;
+    audit(
+        &mut tx,
+        tenant,
+        "account",
+        Some(&acct.to_string()),
+        "member.device_swapped",
+        Some(("entitlement", &l.id.to_string())),
+        json!({ "old": req.old_device_id, "new": new_dev }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(json!({ "ok": true, "next_swap_at": now + i64::from(slots.swap_cooldown_secs) }))
 }

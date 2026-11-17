@@ -95,10 +95,7 @@ pub async fn fulfil_payment(pool: &PgPool, tenant: Uuid, tx_data: &VerifiedTrans
     if amount != tx_data.amount_kobo || currency != tx_data.currency {
         // Money arrived but not the amount we asked for. Keep the evidence, hold access.
         insert_payment(&mut tx, tenant, order_id, tx_data, false).await?;
-        sqlx::query("UPDATE orders SET status = 'refund_flagged' WHERE id = $1")
-            .bind(order_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("UPDATE orders SET status = 'refund_flagged' WHERE id = $1").bind(order_id).execute(&mut *tx).await?;
         audit(
             &mut tx,
             tenant,
@@ -135,10 +132,7 @@ pub async fn fulfil_payment(pool: &PgPool, tenant: Uuid, tx_data: &VerifiedTrans
         .bind(order_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE orders SET status = 'provisioned', paid_at = now() WHERE id = $1")
-            .bind(order_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("UPDATE orders SET status = 'provisioned', paid_at = now() WHERE id = $1").bind(order_id).execute(&mut *tx).await?;
         audit(
             &mut tx,
             tenant,
@@ -169,9 +163,7 @@ pub async fn fulfil_payment(pool: &PgPool, tenant: Uuid, tx_data: &VerifiedTrans
         .await?;
 
     // Grant through the engine so start/expiry rules live in exactly one place.
-    let plan_id: Uuid = order
-        .try_get::<Option<Uuid>, _>("plan_id")?
-        .ok_or_else(|| AppError::Internal("plan order has no plan".into()))?;
+    let plan_id: Uuid = order.try_get::<Option<Uuid>, _>("plan_id")?.ok_or_else(|| AppError::Internal("plan order has no plan".into()))?;
     let plan_row = load_plan(&mut tx, plan_id).await?;
     let subject = match (account_id, access_code_id) {
         (Some(a), _) => Subject::Account(a),
@@ -180,10 +172,7 @@ pub async fn fulfil_payment(pool: &PgPool, tenant: Uuid, tx_data: &VerifiedTrans
     };
     let entitlement_id = grant(&mut tx, tenant, order_id, plan_id, &plan_row.plan, subject).await?;
 
-    sqlx::query("UPDATE orders SET status = 'provisioned' WHERE id = $1")
-        .bind(order_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("UPDATE orders SET status = 'provisioned' WHERE id = $1").bind(order_id).execute(&mut *tx).await?;
 
     audit(
         &mut tx,
@@ -204,13 +193,7 @@ pub async fn fulfil_payment(pool: &PgPool, tenant: Uuid, tx_data: &VerifiedTrans
     Ok(Fulfilment::Provisioned { entitlement_id, access_code })
 }
 
-async fn insert_payment(
-    conn: &mut sqlx::PgConnection,
-    tenant: Uuid,
-    order_id: Uuid,
-    t: &VerifiedTransaction,
-    verified: bool,
-) -> Result<()> {
+async fn insert_payment(conn: &mut sqlx::PgConnection, tenant: Uuid, order_id: Uuid, t: &VerifiedTransaction, verified: bool) -> Result<()> {
     sqlx::query(
         "INSERT INTO payments
             (tenant_id, order_id, provider, provider_event_id, event_type, amount_kobo, fees_kobo,
@@ -233,11 +216,7 @@ async fn insert_payment(
 
 /// Insert a fresh guest code, retrying on the (very unlikely) clash with an
 /// existing one for this tenant.
-async fn create_access_code(
-    conn: &mut sqlx::PgConnection,
-    tenant: Uuid,
-    phone: Option<&str>,
-) -> Result<(Uuid, String)> {
+async fn create_access_code(conn: &mut sqlx::PgConnection, tenant: Uuid, phone: Option<&str>) -> Result<(Uuid, String)> {
     for _ in 0..8 {
         let code = new_access_code();
         let row = sqlx::query(

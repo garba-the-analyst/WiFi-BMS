@@ -78,8 +78,16 @@ async fn world() -> Option<World> {
     let admin = PgPoolOptions::new().max_connections(2).connect(&admin_url).await.unwrap();
     let slug = format!("r-{}", &Uuid::new_v4().simple().to_string()[..10]);
     let tenant: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ($1, $1) RETURNING id").bind(&slug).fetch_one(&admin).await.unwrap();
-    let site_id: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
-    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
+    let site_id: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
     let plan_id: Uuid = sqlx::query_scalar(
         "INSERT INTO plans (tenant_id, name, kind, price_kobo, active_seconds, valid_seconds, speed_profile_id) VALUES ($1, 'Hourly', 'time', 10000, 3600, 86400, $2) RETURNING id",
     )
@@ -166,7 +174,11 @@ impl World {
 
     async fn authorize(&self, ticket: &Value, mac: &str) -> Value {
         let (s, v) = self
-            .node("authorize", &self.token, json!({ "username": ticket["username"], "password": ticket["password"], "mac": mac, "dhcp_vendor_class": "android-dhcp-14" }))
+            .node(
+                "authorize",
+                &self.token,
+                json!({ "username": ticket["username"], "password": ticket["password"], "mac": mac, "dhcp_vendor_class": "android-dhcp-14" }),
+            )
             .await;
         assert_eq!(s, StatusCode::OK, "{v}");
         v
@@ -181,6 +193,7 @@ impl World {
         (ticket["username"].as_str().unwrap().to_string(), a["entitlement_id"].as_str().unwrap().parse().unwrap())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn acct(&self, status: &str, sid: &str, user: &str, mac: &str, bytes_in: u64, bytes_out: u64, secs: u32, extra: Value) -> Value {
         let mut body = json!({ "status": status, "acct_session_id": sid, "username": user, "mac": mac, "ip": "10.5.50.20",
                                "bytes_in": bytes_in, "bytes_out": bytes_out, "session_secs": secs });
@@ -342,7 +355,11 @@ async fn a_single_device_plan_refuses_a_second_device_and_records_it() {
     let a = w.authorize(&ticket, MAC2).await;
     assert_eq!(a["result"], "reject");
     assert!(a["reason"].as_str().unwrap().contains("device limit"));
-    let flags: i64 = sqlx::query_scalar("SELECT count(*) FROM tethering_flags WHERE tenant_id = $1 AND signal = 'slot_overflow'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let flags: i64 = sqlx::query_scalar("SELECT count(*) FROM tethering_flags WHERE tenant_id = $1 AND signal = 'slot_overflow'")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     assert_eq!(flags, 1);
 
     // A three-device plan takes both.
@@ -368,7 +385,11 @@ async fn hotspot_sharing_signals_cut_a_session_but_one_signal_does_not() {
     let r = w.acct("interim", "S5", &user, MAC1, 2 * ACTIVE, 0, 120, json!({ "observation": { "ttl_lowered_ratio": 0.9, "distinct_os_families": 2 } })).await;
     assert_eq!(r["action"], "disconnect");
     assert_eq!(w.end_reason("S5").await.as_deref(), Some("tethering"));
-    let flags: i64 = sqlx::query_scalar("SELECT count(*) FROM tethering_flags WHERE tenant_id = $1 AND action IN ('warn','disconnect')").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let flags: i64 = sqlx::query_scalar("SELECT count(*) FROM tethering_flags WHERE tenant_id = $1 AND action IN ('warn','disconnect')")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     assert!(flags >= 1);
 }
 
@@ -419,7 +440,11 @@ async fn code_guessing_is_refused_and_logged() {
         let (s, _) = w.connect("ZZZZ9999", MAC1).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
     }
-    let logged: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'auth.code_rejected'").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let logged: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'auth.code_rejected'")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     assert_eq!(logged, 3);
     // The same code hammered past the limit is blocked.
     let mut last = StatusCode::OK;
@@ -429,7 +454,8 @@ async fn code_guessing_is_refused_and_logged() {
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
     // Terms must be accepted.
     let body = json!({ "site": "site-1", "mac": MAC1, "code": "ABCD2345", "accept_terms": false });
-    let (s, _) = w.call(Request::post(format!("/v1/t/{}/connect", w.slug)).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()).await;
+    let (s, _) =
+        w.call(Request::post(format!("/v1/t/{}/connect", w.slug)).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()).await;
     assert!(s == StatusCode::BAD_REQUEST || s == StatusCode::TOO_MANY_REQUESTS);
     let _ = w.site_id;
 }

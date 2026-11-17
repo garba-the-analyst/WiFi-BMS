@@ -13,9 +13,7 @@ pub const CODE_LEN: usize = 8;
 
 fn random_string(len: usize) -> String {
     let mut rng = rand::thread_rng();
-    (0..len)
-        .map(|_| CODE_ALPHABET[rng.gen_range(0..CODE_ALPHABET.len())] as char)
-        .collect()
+    (0..len).map(|_| CODE_ALPHABET[rng.gen_range(0..CODE_ALPHABET.len())] as char).collect()
 }
 
 /// A fresh guest access code, e.g. `K7M2QX4R`.
@@ -40,11 +38,7 @@ pub fn pretty_code(code: &str) -> String {
 
 /// Normalise what a person typed: remove spaces and dashes, upper-case.
 pub fn normalise_code(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != '-')
-        .flat_map(|c| c.to_uppercase())
-        .collect()
+    input.chars().filter(|c| !c.is_whitespace() && *c != '-').flat_map(|c| c.to_uppercase()).collect()
 }
 
 #[cfg(test)]

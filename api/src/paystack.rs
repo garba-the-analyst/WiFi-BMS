@@ -114,10 +114,7 @@ impl PaystackHttp {
     }
 
     pub fn with_base(base: &str) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(20))
-            .build()
-            .expect("HTTP client builds");
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().expect("HTTP client builds");
         PaystackHttp { client, base: base.trim_end_matches('/').to_string() }
     }
 }
@@ -148,14 +145,7 @@ impl Gateway for PaystackHttp {
         if let Some(sub) = req.subaccount {
             body["subaccount"] = sub.into();
         }
-        let resp = self
-            .client
-            .post(format!("{}/transaction/initialize", self.base))
-            .bearer_auth(req.secret)
-            .json(&body)
-            .send()
-            .await
-            .map_err(gw)?;
+        let resp = self.client.post(format!("{}/transaction/initialize", self.base)).bearer_auth(req.secret).json(&body).send().await.map_err(gw)?;
         let status = resp.status();
         let v: serde_json::Value = resp.json().await.map_err(gw)?;
         if !status.is_success() || v["status"] != true {
@@ -166,13 +156,7 @@ impl Gateway for PaystackHttp {
     }
 
     async fn verify(&self, secret: &str, reference: &str) -> Result<VerifiedTransaction> {
-        let resp = self
-            .client
-            .get(format!("{}/transaction/verify/{}", self.base, reference))
-            .bearer_auth(secret)
-            .send()
-            .await
-            .map_err(gw)?;
+        let resp = self.client.get(format!("{}/transaction/verify/{}", self.base, reference)).bearer_auth(secret).send().await.map_err(gw)?;
         let status = resp.status();
         let v: serde_json::Value = resp.json().await.map_err(gw)?;
         if !status.is_success() || v["status"] != true {

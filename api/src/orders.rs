@@ -73,11 +73,7 @@ pub async fn create_order(state: &AppState, tenant_slug: &str, req: CreateOrder)
         .try_get("id")?;
 
     let plan = load_plan(&mut tx, req.plan_id).await?;
-    let is_active: bool = sqlx::query("SELECT is_active FROM plans WHERE id = $1")
-        .bind(req.plan_id)
-        .fetch_one(&mut *tx)
-        .await?
-        .try_get("is_active")?;
+    let is_active: bool = sqlx::query("SELECT is_active FROM plans WHERE id = $1").bind(req.plan_id).fetch_one(&mut *tx).await?.try_get("is_active")?;
     if !is_active {
         return Err(AppError::NotFound);
     }
@@ -100,10 +96,7 @@ pub async fn create_order(state: &AppState, tenant_slug: &str, req: CreateOrder)
     .await?
     .try_get("id")?;
 
-    let t = sqlx::query("SELECT payment_mode, paystack_subaccount FROM tenants WHERE id = $1")
-        .bind(tenant)
-        .fetch_one(&mut *tx)
-        .await?;
+    let t = sqlx::query("SELECT payment_mode, paystack_subaccount FROM tenants WHERE id = $1").bind(tenant).fetch_one(&mut *tx).await?;
     let mode: String = t.try_get("payment_mode")?;
     let subaccount: Option<String> = t.try_get("paystack_subaccount")?;
     let secret = state.load_paystack_secret(&mut tx, tenant).await?;
@@ -141,18 +134,12 @@ pub async fn create_order(state: &AppState, tenant_slug: &str, req: CreateOrder)
     let mut tx = tenant_tx(&state.pool, tenant).await?;
     match init {
         Ok(i) => {
-            sqlx::query("UPDATE orders SET status = 'pending' WHERE id = $1 AND status = 'created'")
-                .bind(order_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("UPDATE orders SET status = 'pending' WHERE id = $1 AND status = 'created'").bind(order_id).execute(&mut *tx).await?;
             tx.commit().await?;
             Ok(CreatedOrder { reference, authorization_url: i.authorization_url, amount_kobo: plan.price_kobo })
         }
         Err(e) => {
-            sqlx::query("UPDATE orders SET status = 'failed' WHERE id = $1 AND status = 'created'")
-                .bind(order_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("UPDATE orders SET status = 'failed' WHERE id = $1 AND status = 'created'").bind(order_id).execute(&mut *tx).await?;
             audit(
                 &mut tx,
                 tenant,
@@ -193,11 +180,7 @@ pub async fn order_status(state: &AppState, tenant_slug: &str, reference: &str) 
     .await?
     .ok_or(AppError::NotFound)?;
     tx.commit().await?;
-    Ok(OrderStatus {
-        status: row.try_get("status")?,
-        access_code: row.try_get("code")?,
-        plan: row.try_get("plan")?,
-    })
+    Ok(OrderStatus { status: row.try_get("status")?, access_code: row.try_get("code")?, plan: row.try_get("plan")? })
 }
 
 #[cfg(test)]

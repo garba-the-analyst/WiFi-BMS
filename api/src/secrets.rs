@@ -25,9 +25,7 @@ impl MasterKey {
     /// Parse 64 hex characters.
     pub fn from_hex(s: &str) -> Result<Self> {
         let bytes = hex::decode(s.trim()).map_err(|_| AppError::Internal("master key is not valid hex".into()))?;
-        let arr: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| AppError::Internal("master key must be 32 bytes (64 hex characters)".into()))?;
+        let arr: [u8; 32] = bytes.try_into().map_err(|_| AppError::Internal("master key must be 32 bytes (64 hex characters)".into()))?;
         Ok(MasterKey(arr))
     }
 
@@ -35,9 +33,7 @@ impl MasterKey {
         let cipher = Aes256Gcm::new_from_slice(&self.0).map_err(|e| AppError::Internal(e.to_string()))?;
         let mut nonce_bytes = [0u8; NONCE_LEN];
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
-        let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_bytes())
-            .map_err(|_| AppError::Internal("encryption failed".into()))?;
+        let ct = cipher.encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_bytes()).map_err(|_| AppError::Internal("encryption failed".into()))?;
         let mut out = nonce_bytes.to_vec();
         out.extend_from_slice(&ct);
         Ok(B64.encode(out))

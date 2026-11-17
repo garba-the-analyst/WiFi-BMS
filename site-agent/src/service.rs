@@ -292,7 +292,12 @@ mod tests {
     #[tokio::test]
     async fn a_disconnect_decision_reaches_the_router() {
         let (a, c, r) = agent("disc", Arc::new(NoHints));
-        c.replies.lock().unwrap().push_back(Ok(AccountingReply { action: "disconnect".into(), reason: Some("idle".into()), rate_limit: None, session_timeout_secs: None }));
+        c.replies.lock().unwrap().push_back(Ok(AccountingReply {
+            action: "disconnect".into(),
+            reason: Some("idle".into()),
+            rate_limit: None,
+            session_timeout_secs: None,
+        }));
         a.accounting(acct("interim", 300)).await;
         assert_eq!(*r.disconnects.lock().unwrap(), vec!["tkabc".to_string()]);
     }
@@ -318,7 +323,7 @@ mod tests {
         assert_eq!(*r.coas.lock().unwrap(), vec![(None, Some(3660))]);
 
         // A repeat of the same answer sends nothing more.
-        c.replies.lock().unwrap().push_back(Ok(cont(Some("2000k/5000k"), Some(3540 - 0))));
+        c.replies.lock().unwrap().push_back(Ok(cont(Some("2000k/5000k"), Some(3540))));
         a.accounting(acct("interim", 120)).await;
         assert_eq!(r.coas.lock().unwrap().len(), 1);
     }
@@ -365,7 +370,12 @@ mod tests {
         c.replies.lock().unwrap().push_back(Err(CentralError::Unreachable("down".into())));
         a.accounting(acct("interim", 60)).await;
         // On replay the platform says "disconnect" about the old event; the session is long gone.
-        c.replies.lock().unwrap().push_back(Ok(AccountingReply { action: "disconnect".into(), reason: Some("idle".into()), rate_limit: None, session_timeout_secs: None }));
+        c.replies.lock().unwrap().push_back(Ok(AccountingReply {
+            action: "disconnect".into(),
+            reason: Some("idle".into()),
+            rate_limit: None,
+            session_timeout_secs: None,
+        }));
         a.replay().await;
         assert_eq!(a.spool_depth(), 0);
         assert!(r.disconnects.lock().unwrap().is_empty() && r.coas.lock().unwrap().is_empty());

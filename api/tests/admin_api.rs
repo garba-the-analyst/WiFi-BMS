@@ -48,8 +48,16 @@ async fn world() -> Option<World> {
     let admin = PgPoolOptions::new().max_connections(2).connect(&admin_url).await.unwrap();
     let slug = format!("a-{}", &Uuid::new_v4().simple().to_string()[..10]);
     let tenant: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ($1, $1) RETURNING id").bind(&slug).fetch_one(&admin).await.unwrap();
-    let site_id: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
-    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id").bind(tenant).fetch_one(&admin).await.unwrap();
+    let site_id: Uuid = sqlx::query_scalar("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1') RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Std', 5000, 2000) RETURNING id")
+        .bind(tenant)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
     let state = AppState {
         pool: app,
         gateway: Arc::new(NoGateway),
@@ -103,7 +111,8 @@ async fn signing_in_and_the_role_ladder() {
     let (s, _, _) = w.call("PUT", "/secrets/paystack", Some(&owner), Some(json!({ "secret": "not a key" }))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
     // The key is stored encrypted, not as typed.
-    let stored: String = sqlx::query_scalar("SELECT paystack_secret_enc FROM tenant_secrets WHERE tenant_id = $1").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
+    let stored: String =
+        sqlx::query_scalar("SELECT paystack_secret_enc FROM tenant_secrets WHERE tenant_id = $1").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
     assert!(!stored.contains("sk_test"));
     // Logout kills the token.
     w.call("POST", "/logout", Some(&viewer), None).await;
@@ -143,7 +152,8 @@ async fn two_step_verification_is_enforced_once_enrolled() {
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     let (s, _, _) = w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42", "totp": "123456" }))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
-    let (s, v, _) = w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42", "totp": totp::code_at(&secret, now(), 6) }))).await;
+    let (s, v, _) =
+        w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42", "totp": totp::code_at(&secret, now(), 6) }))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["totp_enrolled"], true);
 }
@@ -171,8 +181,15 @@ async fn plans_are_validated_by_the_engine_and_edits_do_not_touch_sold_plans() {
     assert_eq!(list[0]["price_kobo"], 25000);
     assert_eq!(list[0]["is_active"], false);
     // Another tenant's speed profile cannot be used.
-    let other: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ('o','o-'||substr(gen_random_uuid()::text,1,8)) RETURNING id").fetch_one(&w.admin).await.unwrap();
-    let foreign: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1,'F',1000,1000) RETURNING id").bind(other).fetch_one(&w.admin).await.unwrap();
+    let other: Uuid = sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ('o','o-'||substr(gen_random_uuid()::text,1,8)) RETURNING id")
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
+    let foreign: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1,'F',1000,1000) RETURNING id")
+        .bind(other)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
     let mut cross = plan_body(&w, "Cross");
     cross["speed_profile_id"] = json!(foreign);
     let (s, _, _) = w.call("POST", "/plans", Some(&t), Some(cross)).await;
@@ -185,8 +202,17 @@ async fn plans_are_validated_by_the_engine_and_edits_do_not_touch_sold_plans() {
 async fn analytics_customers_and_network_reports_answer() {
     let Some(w) = world().await else { return };
     let t = w.admin("rep@x.test", "viewer").await;
-    let acct: Uuid = sqlx::query_scalar("INSERT INTO accounts (tenant_id, phone, display_name) VALUES ($1, '+2348022223333', 'Amina') RETURNING id").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
-    sqlx::query("INSERT INTO wallet_ledger (tenant_id, account_id, kind, amount_kobo) VALUES ($1,$2,'topup',50000)").bind(w.tenant).bind(acct).execute(&w.admin).await.unwrap();
+    let acct: Uuid = sqlx::query_scalar("INSERT INTO accounts (tenant_id, phone, display_name) VALUES ($1, '+2348022223333', 'Amina') RETURNING id")
+        .bind(w.tenant)
+        .fetch_one(&w.admin)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO wallet_ledger (tenant_id, account_id, kind, amount_kobo) VALUES ($1,$2,'topup',50000)")
+        .bind(w.tenant)
+        .bind(acct)
+        .execute(&w.admin)
+        .await
+        .unwrap();
     for what in ["revenue", "traffic", "devices", "plans"] {
         for range in ["24h", "7d", "30d", "90d"] {
             let (s, v, _) = w.call("GET", &format!("/analytics/{what}?range={range}"), Some(&t), None).await;

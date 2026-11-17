@@ -217,10 +217,7 @@ fn the_validity_window_ends_a_plan_even_with_budget_left() {
 // ------------------------------------------------------------------- fair use
 
 fn fair_use_plan() -> Plan {
-    Plan {
-        fair_use: Some(FairUse { daily_bytes: 1000, throttled: speed(1000, 500) }),
-        ..data_plan(10_000_000)
-    }
+    Plan { fair_use: Some(FairUse { daily_bytes: 1000, throttled: speed(1000, 500) }), ..data_plan(10_000_000) }
 }
 
 #[test]
@@ -333,14 +330,8 @@ fn swaps_are_limited_to_one_per_cooldown() {
     slots.bind("b", T0).unwrap();
     assert_eq!(slots.swap("a", "c", T0 + 100), Ok(()));
     assert!(slots.bind("a", T0 + 200).is_err(), "a lost its slot");
-    assert_eq!(
-        slots.swap("b", "d", T0 + 200),
-        Err(SwapError::Cooldown { next_swap_at: T0 + 100 + 86_400 })
-    );
-    assert_eq!(
-        slots.bind("e", T0 + 300),
-        Err(BindError::SlotsFull { can_swap_now: false, next_swap_at: T0 + 100 + 86_400 })
-    );
+    assert_eq!(slots.swap("b", "d", T0 + 200), Err(SwapError::Cooldown { next_swap_at: T0 + 100 + 86_400 }));
+    assert_eq!(slots.bind("e", T0 + 300), Err(BindError::SlotsFull { can_swap_now: false, next_swap_at: T0 + 100 + 86_400 }));
     assert_eq!(slots.swap("b", "d", T0 + 100 + 86_400), Ok(()));
 }
 

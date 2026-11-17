@@ -53,7 +53,9 @@ async fn authorize(State(st): State<AppState>, headers: HeaderMap, Json(body): J
     match st.agent.authorize(req).await {
         Decision::Accept(attrs) => (StatusCode::OK, Json(reply_json(&attrs))),
         Decision::Reject(reason) => (StatusCode::UNAUTHORIZED, Json(json!({ "reply:Reply-Message": { "value": [reason], "op": ":=" } }))),
-        Decision::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "reply:Reply-Message": { "value": ["service temporarily unavailable"], "op": ":=" } }))),
+        Decision::Unavailable => {
+            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "reply:Reply-Message": { "value": ["service temporarily unavailable"], "op": ":=" } })))
+        }
     }
 }
 

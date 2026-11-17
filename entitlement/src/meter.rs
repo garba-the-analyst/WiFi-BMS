@@ -69,13 +69,7 @@ pub struct Outcome {
 ///
 /// Mutates `ent` (remaining budgets, fair-use counter, status) and `session`
 /// (idle run, totals). The caller writes the charges to the usage ledger.
-pub fn apply_usage(
-    ent: &mut Entitlement,
-    session: &mut SessionState,
-    sample: UsageSample,
-    now: UnixSecs,
-    tz_offset_secs: i32,
-) -> Outcome {
+pub fn apply_usage(ent: &mut Entitlement, session: &mut SessionState, sample: UsageSample, now: UnixSecs, tz_offset_secs: i32) -> Outcome {
     let total = sample.bytes_in.saturating_add(sample.bytes_out);
     let active = total >= ent.plan.active_threshold_bytes;
 
@@ -128,18 +122,9 @@ pub fn apply_usage(
     };
 
     // A budget or window that has run out ends the purchase. Idle only ends the session.
-    if matches!(
-        action,
-        Action::Disconnect(DisconnectReason::Expired | DisconnectReason::TimeExhausted | DisconnectReason::DataExhausted)
-    ) {
+    if matches!(action, Action::Disconnect(DisconnectReason::Expired | DisconnectReason::TimeExhausted | DisconnectReason::DataExhausted)) {
         ent.refresh_status(now);
     }
 
-    Outcome {
-        action,
-        active,
-        charged_active_secs,
-        charged_bytes,
-        throttled: ent.fair_use_throttled(now, tz_offset_secs),
-    }
+    Outcome { action, active, charged_active_secs, charged_bytes, throttled: ent.fair_use_throttled(now, tz_offset_secs) }
 }

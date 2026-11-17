@@ -17,7 +17,7 @@ path = "src/main.rs"
 entitlement = { path = "../entitlement", features = ["serde"] }
 
 axum = { version = "0.7", features = ["macros"] }
-tower-http = { version = "0.6", features = ["set-header", "trace", "request-id", "cors"] }
+tower-http = { version = "0.6", features = ["set-header", "trace", "request-id", "cors", "timeout"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "json", "macros", "ipnetwork"] }
 serde = { version = "1", features = ["derive"] }

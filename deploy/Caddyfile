@@ -1,0 +1,12 @@
+{$PUBLIC_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	# Only API paths are public. The database is never exposed.
+	reverse_proxy api:8080 {
+		# Caddy sets X-Forwarded-For itself; the API trusts it only with TRUST_PROXY=1.
+		header_up X-Forwarded-For {remote_host}
+	}
+}

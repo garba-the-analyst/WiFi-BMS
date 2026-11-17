@@ -53,10 +53,7 @@ pub async fn authenticate_node(state: &AppState, headers: &HeaderMap) -> Result<
         .ok_or(AppError::Unauthorised)?;
     let ctx = NodeCtx { token_id: row.try_get("token_id")?, tenant: row.try_get("tenant_id")?, site_id: row.try_get("site_id")? };
     let mut tx = tenant_tx(&state.pool, ctx.tenant).await?;
-    sqlx::query("UPDATE node_tokens SET last_used_at = now() WHERE id = $1")
-        .bind(ctx.token_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("UPDATE node_tokens SET last_used_at = now() WHERE id = $1").bind(ctx.token_id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(ctx)
 }
@@ -102,13 +99,7 @@ pub const TICKET_TTL_SECS: i64 = 120;
 pub const TERMS_VERSION: &str = "2026-11";
 
 /// Guest sign-in by access code.
-pub async fn connect_with_code(
-    state: &AppState,
-    tenant_slug: &str,
-    headers: &HeaderMap,
-    ip: Option<&str>,
-    req: ConnectRequest,
-) -> Result<Ticket> {
+pub async fn connect_with_code(state: &AppState, tenant_slug: &str, headers: &HeaderMap, ip: Option<&str>, req: ConnectRequest) -> Result<Ticket> {
     let code = normalise_code(req.code.as_deref().unwrap_or(""));
     if code.len() != 8 {
         return Err(AppError::BadRequest("enter your 8-character access code".into()));
@@ -122,10 +113,7 @@ pub async fn connect_with_code(
     let tenant = tenant_id_by_slug(&state.pool, tenant_slug).await?;
     let mut tx = tenant_tx(&state.pool, tenant).await?;
 
-    let code_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM access_codes WHERE code = $1")
-        .bind(&code)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let code_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM access_codes WHERE code = $1").bind(&code).fetch_optional(&mut *tx).await?;
     let Some(code_id) = code_id else {
         audit(&mut tx, tenant, "guest", ip, "auth.code_rejected", None, serde_json::json!({})).await?;
         tx.commit().await?;
@@ -309,7 +297,16 @@ pub async fn authorize(state: &AppState, node: NodeCtx, req: AuthorizeRequest) -
         && !t.try_get::<bool, _>("used")?;
     if !ok {
         // One reason for every failure, so a guesser learns nothing.
-        audit(&mut tx, node.tenant, "node", None, "radius.reject", Some(("ticket", &ticket_id.to_string())), serde_json::json!({ "why": "ticket check failed" })).await?;
+        audit(
+            &mut tx,
+            node.tenant,
+            "node",
+            None,
+            "radius.reject",
+            Some(("ticket", &ticket_id.to_string())),
+            serde_json::json!({ "why": "ticket check failed" }),
+        )
+        .await?;
         tx.commit().await?;
         return Ok(reject("ticket not valid"));
     }
@@ -339,24 +336,28 @@ pub async fn authorize(state: &AppState, node: NodeCtx, req: AuthorizeRequest) -
     }
 
     // The device: refine what we know with what the router saw in DHCP.
-    let dev_row = sqlx::query("SELECT id, user_agent FROM devices WHERE mac = $1::macaddr")
-        .bind(&mac)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let dev_row = sqlx::query("SELECT id, user_agent FROM devices WHERE mac = $1::macaddr").bind(&mac).fetch_optional(&mut *tx).await?;
     let ua: Option<String> = match &dev_row {
         Some(r) => r.try_get("user_agent")?,
         None => None,
     };
-    let info = identify(&Clues { mac: Some(&mac), user_agent: ua.as_deref(), dhcp_hostname: req.dhcp_hostname.as_deref(), dhcp_vendor_class: req.dhcp_vendor_class.as_deref() });
+    let info = identify(&Clues {
+        mac: Some(&mac),
+        user_agent: ua.as_deref(),
+        dhcp_hostname: req.dhcp_hostname.as_deref(),
+        dhcp_vendor_class: req.dhcp_vendor_class.as_deref(),
+    });
     let device_id = upsert_device(&mut tx, node.tenant, &mac, req.dhcp_hostname.as_deref(), req.dhcp_vendor_class.as_deref(), ua.as_deref(), &info).await?;
 
     // Device slots.
     let mut slots = DeviceSlots::new(chosen.ent.plan.device_limit, chosen.ent.plan.swap_cooldown_secs);
     slots.last_swap_at = chosen.last_swap_at;
-    let bound = sqlx::query("SELECT device_id::text AS d, extract(epoch FROM bound_at)::bigint AS at FROM device_bindings WHERE entitlement_id = $1 AND released_at IS NULL")
-        .bind(chosen.id)
-        .fetch_all(&mut *tx)
-        .await?;
+    let bound = sqlx::query(
+        "SELECT device_id::text AS d, extract(epoch FROM bound_at)::bigint AS at FROM device_bindings WHERE entitlement_id = $1 AND released_at IS NULL",
+    )
+    .bind(chosen.id)
+    .fetch_all(&mut *tx)
+    .await?;
     for b in &bound {
         slots.bindings.push(entitlement::slots::Binding { device_id: b.try_get("d")?, bound_at: b.try_get("at")? });
     }
@@ -377,7 +378,16 @@ pub async fn authorize(state: &AppState, node: NodeCtx, req: AuthorizeRequest) -
                 .bind(serde_json::json!({ "entitlement_id": chosen.id, "can_swap_now": can_swap_now }))
                 .execute(&mut *tx)
                 .await?;
-            audit(&mut tx, node.tenant, "node", None, "radius.reject", Some(("device", &mac)), serde_json::json!({ "why": "device limit", "entitlement_id": chosen.id })).await?;
+            audit(
+                &mut tx,
+                node.tenant,
+                "node",
+                None,
+                "radius.reject",
+                Some(("device", &mac)),
+                serde_json::json!({ "why": "device limit", "entitlement_id": chosen.id }),
+            )
+            .await?;
             tx.commit().await?;
             return Ok(reject("device limit reached for this plan"));
         }
@@ -399,7 +409,16 @@ pub async fn authorize(state: &AppState, node: NodeCtx, req: AuthorizeRequest) -
         .bind(device_id)
         .execute(&mut *tx)
         .await?;
-    audit(&mut tx, node.tenant, "node", None, "radius.accept", Some(("entitlement", &chosen.id.to_string())), serde_json::json!({ "device": mac, "os": info.os_family, "throttled": limits.throttled })).await?;
+    audit(
+        &mut tx,
+        node.tenant,
+        "node",
+        None,
+        "radius.accept",
+        Some(("entitlement", &chosen.id.to_string())),
+        serde_json::json!({ "device": mac, "os": info.os_family, "throttled": limits.throttled }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(AuthorizeReply::Accept { entitlement_id: chosen.id, attributes: reply_attributes(&limits) })
 }
@@ -525,7 +544,16 @@ async fn start(tx: &mut PgConnection, node: NodeCtx, req: &AccountingRequest, ma
     .await?;
     if let Some(row) = inserted {
         let sid: Uuid = row.try_get("id")?;
-        audit(tx, node.tenant, "node", None, "session.start", Some(("session", &sid.to_string())), serde_json::json!({ "device": mac, "entitlement_id": entitlement_id, "ssid": req.ssid })).await?;
+        audit(
+            tx,
+            node.tenant,
+            "node",
+            None,
+            "session.start",
+            Some(("session", &sid.to_string())),
+            serde_json::json!({ "device": mac, "entitlement_id": entitlement_id, "ssid": req.ssid }),
+        )
+        .await?;
     }
     Ok(cont(None, None))
 }
@@ -645,7 +673,16 @@ async fn update(tx: &mut PgConnection, node: NodeCtx, req: &AccountingRequest, m
             .bind(reason)
             .execute(&mut *tx)
             .await?;
-        audit(tx, node.tenant, "node", None, "session.end", Some(("session", &session_id.to_string())), serde_json::json!({ "reason": reason, "device": mac, "active_seconds": state.active_secs, "bytes": state.bytes })).await?;
+        audit(
+            tx,
+            node.tenant,
+            "node",
+            None,
+            "session.end",
+            Some(("session", &session_id.to_string())),
+            serde_json::json!({ "reason": reason, "device": mac, "active_seconds": state.active_secs, "bytes": state.bytes }),
+        )
+        .await?;
         return Ok(if req.status == "stop" { cont(None, None) } else { stop(&text) });
     }
 

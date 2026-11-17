@@ -58,10 +58,7 @@ pub fn code_at(secret: &[u8], unix_secs: u64, digits: u32) -> String {
     mac.update(&counter);
     let h = mac.finalize().into_bytes();
     let offset = (h[19] & 0x0f) as usize;
-    let bin = (u32::from(h[offset] & 0x7f) << 24)
-        | (u32::from(h[offset + 1]) << 16)
-        | (u32::from(h[offset + 2]) << 8)
-        | u32::from(h[offset + 3]);
+    let bin = (u32::from(h[offset] & 0x7f) << 24) | (u32::from(h[offset + 1]) << 16) | (u32::from(h[offset + 2]) << 8) | u32::from(h[offset + 3]);
     format!("{:0width$}", bin % 10u32.pow(digits), width = digits as usize)
 }
 

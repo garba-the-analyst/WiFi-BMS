@@ -39,11 +39,7 @@ pub struct HttpCentral {
 
 impl HttpCentral {
     pub fn new(base: &str, token: &str) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(8))
-            .connect_timeout(Duration::from_secs(4))
-            .build()
-            .expect("HTTP client builds");
+        let client = reqwest::Client::builder().timeout(Duration::from_secs(8)).connect_timeout(Duration::from_secs(4)).build().expect("HTTP client builds");
         HttpCentral { client, base: base.trim_end_matches('/').to_string(), token: token.to_string() }
     }
 

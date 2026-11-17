@@ -3,7 +3,7 @@
 //!
 //! Needs two environment variables (see `run_integration.sh`, which sets them up):
 //! * `DATABASE_URL`        connects as `app_test`, a member of `platform_app`
-//!                         (not a superuser, so row-level security applies)
+//!   (not a superuser, so row-level security applies)
 //! * `ADMIN_DATABASE_URL`  connects as the owner, used only to create test fixtures
 //!
 //! Without them every test prints a notice and passes, so `cargo test` still
@@ -18,9 +18,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use platform_api::error::{AppError, Result};
 use platform_api::http::router;
-use platform_api::paystack::{
-    sign, Gateway, InitializeRequest, InitializedTransaction, VerifiedTransaction,
-};
+use platform_api::paystack::{sign, Gateway, InitializeRequest, InitializedTransaction, VerifiedTransaction};
 use platform_api::secrets::MasterKey;
 use platform_api::{AppState, Config};
 use serde_json::{json, Value};
@@ -64,20 +62,12 @@ impl Gateway for FakeGateway {
             return Err(AppError::Gateway("simulated outage".into()));
         }
         assert_eq!(req.secret, SECRET, "the tenant's own decrypted key must be used");
-        Ok(InitializedTransaction {
-            authorization_url: format!("https://checkout.paystack.test/{}", req.reference),
-            reference: req.reference.to_string(),
-        })
+        Ok(InitializedTransaction { authorization_url: format!("https://checkout.paystack.test/{}", req.reference), reference: req.reference.to_string() })
     }
 
     async fn verify(&self, secret: &str, reference: &str) -> Result<VerifiedTransaction> {
         assert_eq!(secret, SECRET);
-        self.answers
-            .lock()
-            .unwrap()
-            .get(reference)
-            .cloned()
-            .ok_or_else(|| AppError::Gateway("unknown transaction".into()))
+        self.answers.lock().unwrap().get(reference).cloned().ok_or_else(|| AppError::Gateway("unknown transaction".into()))
     }
 }
 
@@ -114,18 +104,12 @@ async fn world() -> Option<World> {
         .execute(&admin)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1')")
+    sqlx::query("INSERT INTO sites (tenant_id, name, slug) VALUES ($1, 'Site 1', 'site-1')").bind(tenant).execute(&admin).await.unwrap();
+    let profile: Uuid = sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Standard', 5000, 2000) RETURNING id")
         .bind(tenant)
-        .execute(&admin)
+        .fetch_one(&admin)
         .await
         .unwrap();
-    let profile: Uuid = sqlx::query_scalar(
-        "INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, 'Standard', 5000, 2000) RETURNING id",
-    )
-    .bind(tenant)
-    .fetch_one(&admin)
-    .await
-    .unwrap();
     let plan_id: Uuid = sqlx::query_scalar(
         "INSERT INTO plans (tenant_id, name, kind, price_kobo, active_seconds, valid_seconds, speed_profile_id)
          VALUES ($1, 'Daily', 'time', 50000, 86400, 86400, $2) RETURNING id",
@@ -160,14 +144,8 @@ fn json_post(uri: &str, body: &Value) -> Request<Body> {
 }
 
 async fn place_order(w: &World) -> String {
-    let (status, v) = call(
-        &w.state,
-        json_post(
-            &format!("/v1/t/{}/orders", w.slug),
-            &json!({ "site": "site-1", "plan_id": w.plan_id, "phone": "0801 234 5678" }),
-        ),
-    )
-    .await;
+    let (status, v) =
+        call(&w.state, json_post(&format!("/v1/t/{}/orders", w.slug), &json!({ "site": "site-1", "plan_id": w.plan_id, "phone": "0801 234 5678" }))).await;
     assert_eq!(status, StatusCode::CREATED, "order response: {v}");
     assert_eq!(v["amount_kobo"], 50000, "price comes from the plan, not the browser");
     v["reference"].as_str().unwrap().to_string()
@@ -229,11 +207,7 @@ async fn a_paid_guest_order_becomes_an_access_code_and_an_entitlement() {
     assert_eq!(count(&w, "SELECT count(*) FROM payments WHERE tenant_id = $1 AND verified", w.tenant).await, 1);
 
     // The audit trail is intact.
-    let broken: i64 = sqlx::query_scalar("SELECT count(*) FROM verify_audit_chain($1)")
-        .bind(w.tenant)
-        .fetch_one(&w.admin)
-        .await
-        .unwrap();
+    let broken: i64 = sqlx::query_scalar("SELECT count(*) FROM verify_audit_chain($1)").bind(w.tenant).fetch_one(&w.admin).await.unwrap();
     assert_eq!(broken, 0);
     assert!(count(&w, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'payment.confirmed'", w.tenant).await == 1);
 }
@@ -308,11 +282,7 @@ async fn the_wrong_amount_is_held_for_refund_not_provisioned() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["result"], "amount_mismatch");
     assert_eq!(count(&w, "SELECT count(*) FROM entitlements WHERE tenant_id = $1", w.tenant).await, 0);
-    let st: String = sqlx::query_scalar("SELECT status::text FROM orders WHERE reference = $1")
-        .bind(&reference)
-        .fetch_one(&w.admin)
-        .await
-        .unwrap();
+    let st: String = sqlx::query_scalar("SELECT status::text FROM orders WHERE reference = $1").bind(&reference).fetch_one(&w.admin).await.unwrap();
     assert_eq!(st, "refund_flagged");
     assert_eq!(count(&w, "SELECT count(*) FROM payments WHERE tenant_id = $1 AND NOT verified", w.tenant).await, 1);
     assert_eq!(count(&w, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'payment.amount_mismatch'", w.tenant).await, 1);
@@ -332,11 +302,8 @@ async fn a_failed_or_abandoned_transaction_grants_nothing() {
 async fn a_gateway_outage_marks_the_order_failed_and_tells_the_customer_to_retry() {
     let Some(w) = world().await else { return };
     *w.gateway.fail_initialize.lock().unwrap() = true;
-    let (status, v) = call(
-        &w.state,
-        json_post(&format!("/v1/t/{}/orders", w.slug), &json!({ "site": "site-1", "plan_id": w.plan_id, "phone": "08012345678" })),
-    )
-    .await;
+    let (status, v) =
+        call(&w.state, json_post(&format!("/v1/t/{}/orders", w.slug), &json!({ "site": "site-1", "plan_id": w.plan_id, "phone": "08012345678" }))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(!v["error"].as_str().unwrap().contains("simulated"), "internal detail must not leak");
     assert_eq!(count(&w, "SELECT count(*) FROM orders WHERE tenant_id = $1 AND status = 'failed'", w.tenant).await, 1);

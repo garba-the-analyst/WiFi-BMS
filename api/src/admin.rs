@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use crate::auth::{bearer, dummy_verify, hash_password, new_token, sha256_hex, verify_password, check_password_policy};
+use crate::auth::{bearer, check_password_policy, dummy_verify, hash_password, new_token, sha256_hex, verify_password};
 use crate::db::{audit, load_plan, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
 use crate::totp;
@@ -141,7 +141,10 @@ pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: L
             if r.try_get::<bool, _>("locked")? {
                 Outcome::Locked
             } else if verify_password(&hash, &req.password) && active && second_step_ok(st, enabled, secret.as_deref(), req.totp.as_deref())? {
-                sqlx::query("UPDATE admin_users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE admin_users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
                 Outcome::Ok(id, enabled)
             } else {
                 sqlx::query(
@@ -248,13 +251,14 @@ pub async fn create_admin(st: &AppState, tenant_slug: &str, email: &str, passwor
     check_password_policy(password, "")?;
     let tenant = tenant_id_by_slug(&st.pool, tenant_slug).await?;
     let mut tx = tenant_tx(&st.pool, tenant).await?;
-    let id: Uuid = sqlx::query_scalar("INSERT INTO admin_users (tenant_id, email, password_hash, role) VALUES ($1, lower($2), $3, $4::admin_role) RETURNING id")
-        .bind(tenant)
-        .bind(email.trim())
-        .bind(hash_password(password)?)
-        .bind(role)
-        .fetch_one(&mut *tx)
-        .await?;
+    let id: Uuid =
+        sqlx::query_scalar("INSERT INTO admin_users (tenant_id, email, password_hash, role) VALUES ($1, lower($2), $3, $4::admin_role) RETURNING id")
+            .bind(tenant)
+            .bind(email.trim())
+            .bind(hash_password(password)?)
+            .bind(role)
+            .fetch_one(&mut *tx)
+            .await?;
     audit(&mut tx, tenant, "system", None, "admin.created", Some(("admin", &id.to_string())), json!({ "role": role })).await?;
     tx.commit().await?;
     Ok(id)
@@ -367,25 +371,44 @@ pub async fn customers(st: &AppState, tenant: &str, h: &HeaderMap, q: Option<&st
 pub async fn customer_detail(st: &AppState, tenant: &str, h: &HeaderMap, id: Uuid) -> Result<Value> {
     let a = authenticate(st, tenant, h, Role::Viewer).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    let acct = json_of(&mut tx, &format!("SELECT id, phone, display_name, email, status::text AS status, created_at, last_login_at, failed_logins FROM accounts WHERE id = '{id}'")).await?;
-    if acct.as_array().map_or(true, |x| x.is_empty()) {
+    let acct = json_of(
+        &mut tx,
+        &format!("SELECT id, phone, display_name, email, status::text AS status, created_at, last_login_at, failed_logins FROM accounts WHERE id = '{id}'"),
+    )
+    .await?;
+    if acct.as_array().is_none_or(|x| x.is_empty()) {
         return Err(AppError::NotFound);
     }
-    let ents = json_of(&mut tx, &format!(
-        "SELECT e.id, p.name AS plan, e.status::text AS status, e.granted_at, e.activated_at, e.expires_at, e.remaining_active_seconds, e.remaining_bytes
-           FROM entitlements e JOIN plans p ON p.id = e.plan_id WHERE e.account_id = '{id}' ORDER BY e.granted_at DESC LIMIT 50")).await?;
-    let sessions = json_of(&mut tx, &format!(
-        "SELECT s.id, s.started_at, s.ended_at, s.end_reason::text AS end_reason, s.bytes_in, s.bytes_out, s.active_seconds, s.ip::text AS ip, s.ssid,
+    let ents = json_of(
+        &mut tx,
+        &format!(
+            "SELECT e.id, p.name AS plan, e.status::text AS status, e.granted_at, e.activated_at, e.expires_at, e.remaining_active_seconds, e.remaining_bytes
+           FROM entitlements e JOIN plans p ON p.id = e.plan_id WHERE e.account_id = '{id}' ORDER BY e.granted_at DESC LIMIT 50"
+        ),
+    )
+    .await?;
+    let sessions = json_of(
+        &mut tx,
+        &format!(
+            "SELECT s.id, s.started_at, s.ended_at, s.end_reason::text AS end_reason, s.bytes_in, s.bytes_out, s.active_seconds, s.ip::text AS ip, s.ssid,
                 d.mac::text AS mac, d.os_family, d.device_class, d.hostname
            FROM sessions s JOIN entitlements e ON e.id = s.entitlement_id JOIN devices d ON d.id = s.device_id
-          WHERE e.account_id = '{id}' ORDER BY s.started_at DESC LIMIT 100")).await?;
+          WHERE e.account_id = '{id}' ORDER BY s.started_at DESC LIMIT 100"
+        ),
+    )
+    .await?;
     let devices = json_of(&mut tx, &format!(
         "SELECT DISTINCT d.id, d.mac::text AS mac, d.mac_randomised, d.os_family, d.os_version, d.device_class, d.hostname, d.confidence, d.first_seen_at, d.last_seen_at
            FROM device_bindings b JOIN entitlements e ON e.id = b.entitlement_id JOIN devices d ON d.id = b.device_id WHERE e.account_id = '{id}'")).await?;
-    let flags = json_of(&mut tx, &format!(
-        "SELECT f.ts, f.signal, f.score, f.action, f.detail FROM tethering_flags f
+    let flags = json_of(
+        &mut tx,
+        &format!(
+            "SELECT f.ts, f.signal, f.score, f.action, f.detail FROM tethering_flags f
            WHERE f.device_id IN (SELECT b.device_id FROM device_bindings b JOIN entitlements e ON e.id = b.entitlement_id WHERE e.account_id = '{id}')
-           ORDER BY f.ts DESC LIMIT 50")).await?;
+           ORDER BY f.ts DESC LIMIT 50"
+        ),
+    )
+    .await?;
     let history = json_of(&mut tx, &format!("SELECT seq, ts, actor_kind, action, detail FROM audit_log WHERE actor_id = '{id}' OR (entity = 'account' AND entity_id = '{id}') ORDER BY seq DESC LIMIT 100")).await?;
     tx.commit().await?;
     Ok(json!({ "account": acct[0], "entitlements": ents, "sessions": sessions, "devices": devices, "tether_flags": flags, "audit": history }))
@@ -398,9 +421,13 @@ pub async fn customer_detail(st: &AppState, tenant: &str, h: &HeaderMap, id: Uui
 pub async fn list_plans(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
     let a = authenticate(st, tenant, h, Role::Viewer).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    let v = json_of(&mut tx, "SELECT p.id, p.name, p.kind::text AS kind, p.price_kobo, p.active_seconds, p.data_bytes, p.valid_seconds, p.activate_on_first_use,
+    let v = json_of(
+        &mut tx,
+        "SELECT p.id, p.name, p.kind::text AS kind, p.price_kobo, p.active_seconds, p.data_bytes, p.valid_seconds, p.activate_on_first_use,
             p.device_limit, p.swap_cooldown_s, p.fup_daily_bytes, p.is_active, s.name AS speed_profile, s.down_kbps, s.up_kbps
-        FROM plans p JOIN speed_profiles s ON s.id = p.speed_profile_id ORDER BY p.price_kobo, p.name").await?;
+        FROM plans p JOIN speed_profiles s ON s.id = p.speed_profile_id ORDER BY p.price_kobo, p.name",
+    )
+    .await?;
     tx.commit().await?;
     Ok(v)
 }
@@ -476,8 +503,16 @@ pub async fn save_plan(st: &AppState, tenant: &str, h: &HeaderMap, id: Option<Uu
         AppError::NotFound => AppError::BadRequest("that speed profile does not exist".into()),
         other => other,
     })?;
-    audit(&mut tx, a.tenant, "admin", Some(&a.actor()), if id.is_some() { "plan.updated" } else { "plan.created" }, Some(("plan", &plan_id.to_string())),
-        json!({ "name": p.name, "price_kobo": p.price_kobo })).await?;
+    audit(
+        &mut tx,
+        a.tenant,
+        "admin",
+        Some(&a.actor()),
+        if id.is_some() { "plan.updated" } else { "plan.created" },
+        Some(("plan", &plan_id.to_string())),
+        json!({ "name": p.name, "price_kobo": p.price_kobo }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(json!({ "id": plan_id }))
 }
@@ -485,7 +520,9 @@ pub async fn save_plan(st: &AppState, tenant: &str, h: &HeaderMap, id: Option<Uu
 fn plan_db_err(e: sqlx::Error) -> AppError {
     match &e {
         sqlx::Error::Database(d) if d.is_unique_violation() => AppError::BadRequest("a plan with that name already exists".into()),
-        sqlx::Error::Database(d) if d.is_check_violation() || d.is_foreign_key_violation() => AppError::BadRequest("the plan's numbers or speed profile are not valid".into()),
+        sqlx::Error::Database(d) if d.is_check_violation() || d.is_foreign_key_violation() => {
+            AppError::BadRequest("the plan's numbers or speed profile are not valid".into())
+        }
         _ => e.into(),
     }
 }
@@ -537,7 +574,15 @@ pub async fn create_profile(st: &AppState, tenant: &str, h: &HeaderMap, p: Profi
         "INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps, burst_down_kbps, burst_up_kbps, burst_threshold_kbps, burst_time_s, priority)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
     )
-    .bind(a.tenant).bind(p.name.trim()).bind(p.down_kbps).bind(p.up_kbps).bind(p.burst_down_kbps).bind(p.burst_up_kbps).bind(p.burst_threshold_kbps).bind(p.burst_time_s).bind(p.priority)
+    .bind(a.tenant)
+    .bind(p.name.trim())
+    .bind(p.down_kbps)
+    .bind(p.up_kbps)
+    .bind(p.burst_down_kbps)
+    .bind(p.burst_up_kbps)
+    .bind(p.burst_threshold_kbps)
+    .bind(p.burst_time_s)
+    .bind(p.priority)
     .fetch_one(&mut *tx)
     .await
     .map_err(plan_db_err)?;
@@ -553,12 +598,20 @@ pub async fn create_profile(st: &AppState, tenant: &str, h: &HeaderMap, p: Profi
 pub async fn network(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
     let a = authenticate(st, tenant, h, Role::Viewer).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    let sites = json_of(&mut tx, "SELECT s.id, s.name, s.slug, s.status,
+    let sites = json_of(
+        &mut tx,
+        "SELECT s.id, s.name, s.slug, s.status,
             (SELECT count(*) FROM sessions x WHERE x.site_id = s.id AND x.ended_at IS NULL AND x.last_update_at > now() - interval '5 minutes') AS online_now,
             (SELECT max(m.ts) FROM metrics m WHERE m.site_id = s.id AND m.metric = 'agent_up') AS agent_last_seen,
             (SELECT m.value FROM metrics m WHERE m.site_id = s.id AND m.metric = 'agent_spool_depth' ORDER BY m.ts DESC LIMIT 1) AS spool_depth
-          FROM sites s ORDER BY s.name").await?;
-    let nodes = json_of(&mut tx, "SELECT id, site_id, kind::text AS kind, name, model, mgmt_ip::text AS mgmt_ip, firmware, distance_m, last_seen_at FROM nodes ORDER BY name").await?;
+          FROM sites s ORDER BY s.name",
+    )
+    .await?;
+    let nodes = json_of(
+        &mut tx,
+        "SELECT id, site_id, kind::text AS kind, name, model, mgmt_ip::text AS mgmt_ip, firmware, distance_m, last_seen_at FROM nodes ORDER BY name",
+    )
+    .await?;
     let tokens = json_of(&mut tx, "SELECT id, site_id, name, created_at, last_used_at, revoked_at FROM node_tokens ORDER BY created_at DESC").await?;
     tx.commit().await?;
     Ok(json!({ "sites": sites, "nodes": nodes, "node_tokens": tokens }))
@@ -577,7 +630,12 @@ pub async fn create_node_token(st: &AppState, tenant: &str, h: &HeaderMap, req: 
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let site: Uuid = sqlx::query_scalar("SELECT id FROM sites WHERE slug = $1").bind(&req.site).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
     let id: Uuid = sqlx::query_scalar("INSERT INTO node_tokens (tenant_id, site_id, name, token_hash) VALUES ($1,$2,$3,$4) RETURNING id")
-        .bind(a.tenant).bind(site).bind(req.name.trim().chars().take(80).collect::<String>()).bind(sha256_hex(&token)).fetch_one(&mut *tx).await?;
+        .bind(a.tenant)
+        .bind(site)
+        .bind(req.name.trim().chars().take(80).collect::<String>())
+        .bind(sha256_hex(&token))
+        .fetch_one(&mut *tx)
+        .await?;
     audit(&mut tx, a.tenant, "admin", Some(&a.actor()), "node_token.created", Some(("node_token", &id.to_string())), json!({ "site": req.site })).await?;
     tx.commit().await?;
     Ok(json!({ "id": id, "token": token, "note": "Copy this now. It cannot be shown again." }))
@@ -613,8 +671,18 @@ pub async fn node_metrics(st: &AppState, headers: &HeaderMap, req: MetricsIn) ->
     }
     let mut tx = tenant_tx(&st.pool, node.tenant).await?;
     let mut n = 0;
-    for m in req.metrics.iter().filter(|m| m.value.is_finite() && !m.metric.is_empty() && m.metric.len() <= 64 && m.metric.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
-        sqlx::query("INSERT INTO metrics (ts, tenant_id, site_id, metric, value) VALUES (now(), $1, $2, $3, $4)").bind(node.tenant).bind(node.site_id).bind(&m.metric).bind(m.value).execute(&mut *tx).await?;
+    for m in req
+        .metrics
+        .iter()
+        .filter(|m| m.value.is_finite() && !m.metric.is_empty() && m.metric.len() <= 64 && m.metric.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    {
+        sqlx::query("INSERT INTO metrics (ts, tenant_id, site_id, metric, value) VALUES (now(), $1, $2, $3, $4)")
+            .bind(node.tenant)
+            .bind(node.site_id)
+            .bind(&m.metric)
+            .bind(m.value)
+            .execute(&mut *tx)
+            .await?;
         n += 1;
     }
     tx.commit().await?;
@@ -628,12 +696,22 @@ pub async fn node_metrics(st: &AppState, headers: &HeaderMap, req: MetricsIn) ->
 pub async fn security(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
     let a = authenticate(st, tenant, h, Role::Viewer).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    let flags = json_of(&mut tx, "SELECT f.ts, f.signal, f.score, f.action, f.detail, d.mac::text AS mac, d.os_family, d.hostname
-        FROM tethering_flags f JOIN devices d ON d.id = f.device_id ORDER BY f.ts DESC LIMIT 100").await?;
-    let failures = json_of(&mut tx, "SELECT action, count(*) AS count_24h FROM audit_log
+    let flags = json_of(
+        &mut tx,
+        "SELECT f.ts, f.signal, f.score, f.action, f.detail, d.mac::text AS mac, d.os_family, d.hostname
+        FROM tethering_flags f JOIN devices d ON d.id = f.device_id ORDER BY f.ts DESC LIMIT 100",
+    )
+    .await?;
+    let failures = json_of(
+        &mut tx,
+        "SELECT action, count(*) AS count_24h FROM audit_log
         WHERE ts > now() - interval '24 hours' AND action IN ('member.login_failed','admin.login_failed','auth.code_rejected','payment.webhook_rejected')
-        GROUP BY action").await?;
-    let refunds = json_of(&mut tx, "SELECT reference, amount_kobo, phone, created_at FROM orders WHERE status = 'refund_flagged' ORDER BY created_at DESC LIMIT 50").await?;
+        GROUP BY action",
+    )
+    .await?;
+    let refunds =
+        json_of(&mut tx, "SELECT reference, amount_kobo, phone, created_at FROM orders WHERE status = 'refund_flagged' ORDER BY created_at DESC LIMIT 50")
+            .await?;
     tx.commit().await?;
     Ok(json!({ "tether_flags": flags, "failures_24h": failures, "refund_flagged_orders": refunds }))
 }
@@ -662,7 +740,7 @@ pub async fn audit_verify(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<
     let broken = json_of(&mut tx, &format!("SELECT bad_seq, problem FROM verify_audit_chain('{}')", a.tenant)).await?;
     let total: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log").fetch_one(&mut *tx).await?;
     tx.commit().await?;
-    Ok(json!({ "entries": total, "intact": broken.as_array().map_or(true, |b| b.is_empty()), "problems": broken }))
+    Ok(json!({ "entries": total, "intact": broken.as_array().is_none_or(|b| b.is_empty()), "problems": broken }))
 }
 
 /// Spreadsheet programs run text that starts with = + - @ as a formula.
@@ -715,7 +793,16 @@ pub async fn set_paystack_key(st: &AppState, tenant: &str, h: &HeaderMap, req: P
         .bind(enc)
         .execute(&mut *tx)
         .await?;
-    audit(&mut tx, a.tenant, "admin", Some(&a.actor()), "secrets.paystack_key_set", None, json!({ "mode": if s.starts_with("sk_live_") { "live" } else { "test" } })).await?;
+    audit(
+        &mut tx,
+        a.tenant,
+        "admin",
+        Some(&a.actor()),
+        "secrets.paystack_key_set",
+        None,
+        json!({ "mode": if s.starts_with("sk_live_") { "live" } else { "test" } }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(json!({ "ok": true }))
 }
