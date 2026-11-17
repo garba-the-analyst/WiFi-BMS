@@ -2,6 +2,28 @@
 name = "site-agent"
 version = "0.1.0"
 edition = "2021"
+description = "Per-site agent: relays FreeRADIUS requests to the central platform, enforces its answers on the router, and keeps working when the internet link drops"
 license = "UNLICENSED"
 
+[lib]
+name = "site_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "site-agent"
+path = "src/main.rs"
+
 [dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "process", "io-util", "sync", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

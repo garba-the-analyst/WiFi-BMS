@@ -1,0 +1,19 @@
+[Unit]
+Description=WiFi-BMS site agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wifibms
+EnvironmentFile=/etc/wifi-bms/site-agent.env
+ExecStart=/usr/local/bin/site-agent
+Restart=always
+RestartSec=3
+StateDirectory=wifi-bms
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
