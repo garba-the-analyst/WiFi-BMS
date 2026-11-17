@@ -1,0 +1,37 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-16T09:30:00Z" },
+  "title": "Starlink Wi-Fi Platform UI",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 390, "h": 900, "title": "Portal: choose a plan", "is_interactive": true },
+    "Portal-Checkout.dc.html": { "x": 470, "y": 0, "w": 390, "h": 900, "title": "Portal: checkout", "is_interactive": true },
+    "Portal-Connected.dc.html": { "x": 940, "y": 0, "w": 390, "h": 900, "title": "Portal: connected" },
+    "Portal-Member.dc.html": { "x": 1410, "y": 0, "w": 390, "h": 900, "title": "Member area" },
+    "Admin-Overview.dc.html": { "x": 0, "y": 1550, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: live overview" },
+    "Admin-Analytics.dc.html": { "x": 1520, "y": 1550, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: analytics" },
+    "Admin-Customers.dc.html": { "x": 3040, "y": 1550, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: customers and devices" },
+    "Admin-Plans.dc.html": { "x": 0, "y": 2670, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: plans and speeds" },
+    "Admin-Network.dc.html": { "x": 1520, "y": 2670, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: network health" },
+    "Admin-Security.dc.html": { "x": 3040, "y": 2670, "w": 1440, "h": 1000, "expand": "fill", "title": "Admin: security and audit" }
+  },
+  "order": [
+    "Main.dc.html",
+    "Portal-Checkout.dc.html",
+    "Portal-Connected.dc.html",
+    "Portal-Member.dc.html",
+    "Admin-Overview.dc.html",
+    "Admin-Analytics.dc.html",
+    "Admin-Customers.dc.html",
+    "Admin-Plans.dc.html",
+    "Admin-Network.dc.html",
+    "Admin-Security.dc.html"
+  ],
+  "notes": {
+    "t-portal": { "x": 0, "y": -300, "text": "Customer portal and member area", "kind": "title1", "maxW": 1800 },
+    "t-admin": { "x": 0, "y": 1250, "text": "Admin panel", "kind": "title1", "maxW": 4480 },
+    "s-sample": { "x": 1900, "y": 0, "w": 320, "text": "Sample content. Prices show as placeholders and every number on the admin boards is sample data. Real values come from the plans and the live system.", "fill": "orange" }
+  },
+  "designSystems": []
+}

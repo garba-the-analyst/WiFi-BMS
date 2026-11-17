@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin: network health</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif;color:#0E1726}
+a{color:#0F766E}a:hover{color:#0B5A54}
+button,input,select{font-family:inherit}
+.nav{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:#C9D3E2;text-decoration:none}
+.nav:hover{background:rgba(255,255,255,0.08);color:#FFFFFF}
+.nav.on{background:#0F766E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #DCE2EA;border-radius:14px;padding:18px}
+.h{margin:0;font-size:14px;font-weight:600}
+.sub{font-size:12.5px;color:#55627A}
+.pill{font-size:11.5px;font-weight:600;border-radius:6px;padding:3px 8px;white-space:nowrap}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-size:12px;font-weight:600;color:#55627A;padding:8px 10px;border-bottom:1px solid #DCE2EA}
+td{padding:10px;border-bottom:1px solid #E6EBF1}
+td.n,th.n{text-align:right}
+.btn{height:34px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:600;border:1px solid #C5CEDA;background:#FFFFFF;color:#0E1726}
+.g{color:#15803D;background:#E4F5EA}.a{color:#B45309;background:#FDF1E1}.r{color:#B42318;background:#FDEBEA}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;width:100%;min-height:1000px;background:#F3F5F8;font-family:Inter,system-ui,sans-serif;color:#0E1726">
+
+  <aside style="flex:0 0 240px;background:#0E1726;padding:20px 14px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 6px 14px">
+      <div style="width:34px;height:34px;border-radius:9px;background:#0F766E;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1" fill="#FFFFFF"/></svg></div>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:#FFFFFF">[Platform name]</span>
+    </div>
+    <button style="display:flex;align-items:center;justify-content:space-between;height:40px;margin-bottom:10px;padding:0 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;background:transparent;color:#FFFFFF;font-size:13.5px">[Tenant: Minna Wi-Fi]<span aria-hidden="true">▾</span></button>
+    <a class="nav" href="Admin-Overview.dc.html">Overview</a>
+    <a class="nav" href="Admin-Analytics.dc.html">Analytics</a>
+    <a class="nav" href="Admin-Customers.dc.html">Customers</a>
+    <a class="nav" href="Admin-Plans.dc.html">Plans</a>
+    <a class="nav on" href="Admin-Network.dc.html">Network</a>
+    <a class="nav" href="Admin-Security.dc.html">Security and audit</a>
+    <a class="nav" href="#">Settings</a>
+    <div style="margin-top:auto;padding:12px 6px 0;border-top:1px solid rgba(255,255,255,0.12);font-size:13px;color:#C9D3E2">[Admin name]<br><span style="font-size:12px;opacity:0.7">Owner · 2FA on</span></div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;padding:22px 28px 28px;box-sizing:border-box">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 style="margin:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px">Network health</h1>
+        <span class="pill a">Sample data</span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <select aria-label="Site" style="height:38px;border:1px solid #C5CEDA;border-radius:9px;background:#FFFFFF;padding:0 10px;font-size:13.5px"><option>All sites</option><option>Site 1</option><option>Site 2</option></select>
+        <button style="height:38px;padding:0 14px;border:1px solid #0F766E;border-radius:9px;background:#FFFFFF;color:#0F766E;font-size:13.5px;font-weight:600">Add node</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+      <div class="card"><div class="sub">Sites online</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">2 of 2</div></div>
+      <div class="card"><div class="sub">Radio links healthy</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">4 of 6</div><div class="sub" style="margin-top:4px;color:#B45309">1 weak · 1 down</div></div>
+      <div class="card"><div class="sub">Access points online</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">8 of 9</div></div>
+      <div class="card"><div class="sub">Average latency</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">[38] ms</div></div>
+    </div>
+
+    <!-- Site 1 -->
+    <section class="card" style="margin-top:14px;overflow-x:auto">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:baseline">
+        <h2 class="h" style="font-size:16px">Site 1 · [Site name]</h2>
+        <span class="sub">Last checked 12 s ago · Node uptime 41 days</span>
+      </div>
+      <table style="margin-top:8px;min-width:760px">
+        <thead><tr><th>Component</th><th>Role</th><th class="n">Signal</th><th class="n">Throughput</th><th class="n">Clients</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:600">Starlink Standard</td><td>Internet source</td><td class="n">-</td><td class="n">142 / 21 Mbps</td><td class="n">-</td><td><span class="pill g">Healthy</span></td><td></td></tr>
+          <tr><td style="font-weight:600">Router and hotspot</td><td>Gateway, RADIUS client</td><td class="n">-</td><td class="n">63 Mbps</td><td class="n">74</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">Hub APs (2)</td><td>Local coverage</td><td class="n">-</td><td class="n">41 Mbps</td><td class="n">38</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">150 m remote spot</td><td>5 GHz link + AP</td><td class="n">-58 dBm</td><td class="n">220 Mbps</td><td class="n">19</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">600 m remote spot</td><td>5 GHz link + AP</td><td class="n" style="color:#B45309;font-weight:600">-71 dBm</td><td class="n">90 Mbps</td><td class="n">17</td><td><span class="pill a">Weak signal</span></td><td><button class="btn">Details</button></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Site 2 -->
+    <section class="card" style="margin-top:14px;overflow-x:auto">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:baseline">
+        <h2 class="h" style="font-size:16px">Site 2 · [Site name]</h2>
+        <span class="sub">Last checked 9 s ago · Node uptime 38 days</span>
+      </div>
+      <table style="margin-top:8px;min-width:760px">
+        <thead><tr><th>Component</th><th>Role</th><th class="n">Signal</th><th class="n">Throughput</th><th class="n">Clients</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:600">Starlink Standard</td><td>Internet source</td><td class="n">-</td><td class="n">118 / 18 Mbps</td><td class="n">-</td><td><span class="pill g">Healthy</span></td><td></td></tr>
+          <tr><td style="font-weight:600">Router and hotspot</td><td>Gateway, RADIUS client</td><td class="n">-</td><td class="n">55 Mbps</td><td class="n">52</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">300 m remote spot</td><td>5 GHz link + AP</td><td class="n">-62 dBm</td><td class="n">180 Mbps</td><td class="n">12</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">400 m remote spot</td><td>5 GHz link + AP</td><td class="n">-64 dBm</td><td class="n">160 Mbps</td><td class="n">10</td><td><span class="pill g">Healthy</span></td><td><button class="btn">Details</button></td></tr>
+          <tr><td style="font-weight:600">650 m remote spot</td><td>5 GHz link + AP</td><td class="n" style="color:#B42318;font-weight:600">No signal</td><td class="n">0 Mbps</td><td class="n">0</td><td><span class="pill r">Down 4 min</span></td><td><button class="btn" style="color:#B42318;border-color:#E9B5B0">Investigate</button></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:14px">
+      <section class="card" style="flex:1 1 360px;min-width:0">
+        <h2 class="h">Link signal, last 24 hours</h2>
+        <svg viewBox="0 0 520 170" width="100%" role="img" aria-label="Line chart of the 600 m link signal over 24 hours, dropping from about -62 to -71 dBm in the evening." style="margin-top:8px;display:block">
+          <g stroke="#E6EBF1"><line x1="40" y1="20" x2="510" y2="20"/><line x1="40" y1="70" x2="510" y2="70"/><line x1="40" y1="120" x2="510" y2="120"/></g>
+          <g fill="#55627A" font-size="11" font-family="Inter,sans-serif" text-anchor="end"><text x="32" y="24">-55</text><text x="32" y="74">-65</text><text x="32" y="124">-75</text></g>
+          <g fill="#55627A" font-size="11" font-family="Inter,sans-serif" text-anchor="middle"><text x="40" y="150">-24 h</text><text x="275" y="150">-12 h</text><text x="500" y="150">now</text></g>
+          <line x1="40" y1="95" x2="510" y2="95" stroke="#B45309" stroke-dasharray="4 4"/><text x="506" y="90" fill="#B45309" font-size="11" font-family="Inter,sans-serif" text-anchor="end">Warning at -70 dBm</text>
+          <polyline fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" points="40,50 90,52 140,48 190,54 240,58 290,56 340,62 390,72 430,84 470,100 500,104"/>
+        </svg>
+      </section>
+      <section class="card" style="flex:1 1 360px;min-width:0">
+        <h2 class="h">Node agent and sync</h2>
+        <div style="margin-top:8px;font-size:13.5px;line-height:1.9;color:#3E4B63">
+          <div style="display:flex;justify-content:space-between"><span>Site 1 node to platform tunnel</span><span class="pill g">Connected</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Site 2 node to platform tunnel</span><span class="pill g">Connected</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Last router config check</span><span>2 min ago · no drift</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Offline mode if the platform is unreachable</span><span>Active customers stay online</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Last backup</span><span>Today, 03:00</span></div>
+        </div>
+      </section>
+    </div>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

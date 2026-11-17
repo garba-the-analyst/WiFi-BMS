@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin: analytics</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif;color:#0E1726}
+a{color:#0F766E}a:hover{color:#0B5A54}
+button,input,select{font-family:inherit}
+.nav{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:#C9D3E2;text-decoration:none}
+.nav:hover{background:rgba(255,255,255,0.08);color:#FFFFFF}
+.nav.on{background:#0F766E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #DCE2EA;border-radius:14px;padding:18px}
+.h{margin:0;font-size:14px;font-weight:600}
+.sub{font-size:12.5px;color:#55627A}
+.kpi{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;line-height:1.1}
+.pill{font-size:11.5px;font-weight:600;border-radius:6px;padding:3px 8px}
+.tab{height:38px;padding:0 14px;border:0;border-bottom:2px solid transparent;background:transparent;color:#55627A;font-size:14px;font-weight:500}
+.tab.on{border-bottom-color:#0F766E;color:#0F766E;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-size:12px;font-weight:600;color:#55627A;padding:8px 10px;border-bottom:1px solid #DCE2EA}
+td{padding:10px;border-bottom:1px solid #E6EBF1}
+td.n,th.n{text-align:right}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;width:100%;min-height:1000px;background:#F3F5F8;font-family:Inter,system-ui,sans-serif;color:#0E1726">
+
+  <aside style="flex:0 0 240px;background:#0E1726;padding:20px 14px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 6px 14px">
+      <div style="width:34px;height:34px;border-radius:9px;background:#0F766E;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1" fill="#FFFFFF"/></svg></div>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:#FFFFFF">[Platform name]</span>
+    </div>
+    <button style="display:flex;align-items:center;justify-content:space-between;height:40px;margin-bottom:10px;padding:0 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;background:transparent;color:#FFFFFF;font-size:13.5px">[Tenant: Minna Wi-Fi]<span aria-hidden="true">▾</span></button>
+    <a class="nav" href="Admin-Overview.dc.html">Overview</a>
+    <a class="nav on" href="Admin-Analytics.dc.html">Analytics</a>
+    <a class="nav" href="Admin-Customers.dc.html">Customers</a>
+    <a class="nav" href="Admin-Plans.dc.html">Plans</a>
+    <a class="nav" href="Admin-Network.dc.html">Network</a>
+    <a class="nav" href="Admin-Security.dc.html">Security and audit</a>
+    <a class="nav" href="#">Settings</a>
+    <div style="margin-top:auto;padding:12px 6px 0;border-top:1px solid rgba(255,255,255,0.12);font-size:13px;color:#C9D3E2">[Admin name]<br><span style="font-size:12px;opacity:0.7">Owner · 2FA on</span></div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;padding:22px 28px 28px;box-sizing:border-box">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 style="margin:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px">Analytics</h1>
+        <span class="pill" style="color:#B45309;background:#FDF1E1">Sample data</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <select aria-label="Site" style="height:38px;border:1px solid #C5CEDA;border-radius:9px;background:#FFFFFF;padding:0 10px;font-size:13.5px"><option>All sites</option><option>Site 1</option><option>Site 2</option></select>
+        <div style="display:flex;background:#FFFFFF;border:1px solid #DCE2EA;border-radius:9px;padding:3px;gap:2px">
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#55627A;font-size:13px;font-weight:500">Live</button>
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#55627A;font-size:13px;font-weight:500">1 h</button>
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#55627A;font-size:13px;font-weight:500">24 h</button>
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#55627A;font-size:13px;font-weight:500">7 d</button>
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:#0F766E;color:#FFFFFF;font-size:13px;font-weight:600">30 d</button>
+          <button style="height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#55627A;font-size:13px;font-weight:500">Custom</button>
+        </div>
+        <button style="height:38px;padding:0 14px;border:1px solid #0F766E;border-radius:9px;background:#FFFFFF;color:#0F766E;font-size:13.5px;font-weight:600">Export CSV</button>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;border-bottom:1px solid #DCE2EA">
+      <button class="tab">Traffic</button><button class="tab">Devices</button><button class="tab on">Money</button><button class="tab">Technical</button><button class="tab">Security</button><button class="tab">Behaviour</button><button class="tab">Business</button>
+    </div>
+
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+      <div class="card"><div class="sub">Income, 30 days</div><div class="kpi" style="margin-top:6px">₦[income]</div><div class="sub" style="margin-top:6px;color:#15803D">▲ 11% vs previous 30 days</div></div>
+      <div class="card"><div class="sub">Outflow, 30 days</div><div class="kpi" style="margin-top:6px">₦[outflow]</div><div class="sub" style="margin-top:6px">Starlink, power, fees, refunds</div></div>
+      <div class="card"><div class="sub">Net</div><div class="kpi" style="margin-top:6px;color:#15803D">₦[net]</div><div class="sub" style="margin-top:6px">Margin [38]%</div></div>
+      <div class="card"><div class="sub">Average per customer</div><div class="kpi" style="margin-top:6px">₦[arpu]</div><div class="sub" style="margin-top:6px">[412] paying customers</div></div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:14px">
+      <section class="card" style="flex:2 1 520px;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <h2 class="h">Income and outflow by week</h2>
+          <div style="display:flex;gap:14px;font-size:12.5px;color:#55627A"><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0F766E;margin-right:6px"></span>Income</span><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#B45309;margin-right:6px"></span>Outflow</span></div>
+        </div>
+        <svg viewBox="0 0 700 240" width="100%" role="img" aria-label="Grouped bar chart of weekly income and outflow over four weeks. Income grows each week and stays above outflow." style="margin-top:10px;display:block">
+          <g stroke="#E6EBF1"><line x1="44" y1="20" x2="690" y2="20"/><line x1="44" y1="70" x2="690" y2="70"/><line x1="44" y1="120" x2="690" y2="120"/><line x1="44" y1="170" x2="690" y2="170"/><line x1="44" y1="200" x2="690" y2="200" stroke="#C5CEDA"/></g>
+          <g fill="#55627A" font-size="11" font-family="Inter,sans-serif" text-anchor="end"><text x="36" y="24">₦[4]</text><text x="36" y="74">₦[3]</text><text x="36" y="124">₦[2]</text><text x="36" y="174">₦[1]</text></g>
+          <g>
+            <rect x="90" y="110" width="52" height="90" rx="3" fill="#0F766E"/><rect x="148" y="150" width="52" height="50" rx="3" fill="#B45309"/>
+            <rect x="240" y="96" width="52" height="104" rx="3" fill="#0F766E"/><rect x="298" y="148" width="52" height="52" rx="3" fill="#B45309"/>
+            <rect x="390" y="76" width="52" height="124" rx="3" fill="#0F766E"/><rect x="448" y="146" width="52" height="54" rx="3" fill="#B45309"/>
+            <rect x="540" y="52" width="52" height="148" rx="3" fill="#0F766E"/><rect x="598" y="144" width="52" height="56" rx="3" fill="#B45309"/>
+          </g>
+          <g fill="#55627A" font-size="11.5" font-family="Inter,sans-serif" text-anchor="middle"><text x="145" y="220">Week 1</text><text x="295" y="220">Week 2</text><text x="445" y="220">Week 3</text><text x="595" y="220">Week 4</text></g>
+        </svg>
+      </section>
+
+      <section class="card" style="flex:1 1 320px;min-width:0">
+        <h2 class="h">Income by plan</h2>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Monthly</span><span style="font-weight:600">41%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:41%;height:8px;border-radius:999px;background:#0F766E"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Weekly</span><span style="font-weight:600">28%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:28%;height:8px;border-radius:999px;background:#0F766E"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Daily</span><span style="font-weight:600">21%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:21%;height:8px;border-radius:999px;background:#0F766E"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Hourly and data</span><span style="font-weight:600">10%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:10%;height:8px;border-radius:999px;background:#0F766E"></div></div></div>
+        </div>
+        <h2 class="h" style="margin-top:22px">Income by channel</h2>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Bank transfer</span><span style="font-weight:600">52%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:52%;height:8px;border-radius:999px;background:#2457C5"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Card</span><span style="font-weight:600">27%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:27%;height:8px;border-radius:999px;background:#2457C5"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>USSD</span><span style="font-weight:600">13%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:13%;height:8px;border-radius:999px;background:#2457C5"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:13px"><span>Wallet and vouchers</span><span style="font-weight:600">8%</span></div><div style="margin-top:5px;height:8px;border-radius:999px;background:#E6EBF1"><div style="width:8%;height:8px;border-radius:999px;background:#2457C5"></div></div></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:14px;overflow-x:auto">
+      <h2 class="h">Net by site</h2>
+      <table style="margin-top:8px;min-width:560px">
+        <thead><tr><th>Site</th><th class="n">Income</th><th class="n">Outflow</th><th class="n">Net</th><th class="n">Margin</th><th class="n">Paying customers</th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:600">Site 1</td><td class="n">₦[income]</td><td class="n">₦[outflow]</td><td class="n" style="color:#15803D;font-weight:600">₦[net]</td><td class="n">[41]%</td><td class="n">[236]</td></tr>
+          <tr><td style="font-weight:600">Site 2</td><td class="n">₦[income]</td><td class="n">₦[outflow]</td><td class="n" style="color:#15803D;font-weight:600">₦[net]</td><td class="n">[34]%</td><td class="n">[176]</td></tr>
+          <tr><td style="font-weight:600">Total</td><td class="n" style="font-weight:600">₦[income]</td><td class="n" style="font-weight:600">₦[outflow]</td><td class="n" style="color:#15803D;font-weight:600">₦[net]</td><td class="n" style="font-weight:600">[38]%</td><td class="n" style="font-weight:600">[412]</td></tr>
+        </tbody>
+      </table>
+      <div class="sub" style="margin-top:10px">Outflow includes Starlink subscriptions, electricity, payment fees, refunds and agent commissions you record in Settings.</div>
+    </section>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

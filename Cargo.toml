@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["entitlement", "api", "site-agent"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"

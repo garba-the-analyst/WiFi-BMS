@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin: plans and speeds</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif;color:#0E1726}
+a{color:#0F766E}a:hover{color:#0B5A54}
+button,input,select{font-family:inherit}
+.nav{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:#C9D3E2;text-decoration:none}
+.nav:hover{background:rgba(255,255,255,0.08);color:#FFFFFF}
+.nav.on{background:#0F766E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #DCE2EA;border-radius:14px;padding:18px}
+.h{margin:0;font-size:14px;font-weight:600}
+.sub{font-size:12.5px;color:#55627A}
+.pill{font-size:11.5px;font-weight:600;border-radius:6px;padding:3px 8px;white-space:nowrap}
+.f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.f label{font-size:13px;font-weight:600}
+.f input,.f select{height:42px;box-sizing:border-box;border:1px solid #C5CEDA;border-radius:9px;padding:0 12px;font-size:14px;background:#FFFFFF;color:#0E1726;width:100%}
+.f .hint{font-size:12px;color:#55627A}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.pl{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1px solid #DCE2EA;border-radius:12px;background:#FFFFFF}
+.pl.sel{background:#E3F3F1;border:2px solid #0F766E;padding:11px 13px}
+.btn{height:38px;padding:0 16px;border-radius:9px;font-size:13.5px;font-weight:600;border:1px solid #C5CEDA;background:#FFFFFF;color:#0E1726}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;width:100%;min-height:1000px;background:#F3F5F8;font-family:Inter,system-ui,sans-serif;color:#0E1726">
+
+  <aside style="flex:0 0 240px;background:#0E1726;padding:20px 14px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 6px 14px">
+      <div style="width:34px;height:34px;border-radius:9px;background:#0F766E;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1" fill="#FFFFFF"/></svg></div>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:#FFFFFF">[Platform name]</span>
+    </div>
+    <button style="display:flex;align-items:center;justify-content:space-between;height:40px;margin-bottom:10px;padding:0 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;background:transparent;color:#FFFFFF;font-size:13.5px">[Tenant: Minna Wi-Fi]<span aria-hidden="true">▾</span></button>
+    <a class="nav" href="Admin-Overview.dc.html">Overview</a>
+    <a class="nav" href="Admin-Analytics.dc.html">Analytics</a>
+    <a class="nav" href="Admin-Customers.dc.html">Customers</a>
+    <a class="nav on" href="Admin-Plans.dc.html">Plans</a>
+    <a class="nav" href="Admin-Network.dc.html">Network</a>
+    <a class="nav" href="Admin-Security.dc.html">Security and audit</a>
+    <a class="nav" href="#">Settings</a>
+    <div style="margin-top:auto;padding:12px 6px 0;border-top:1px solid rgba(255,255,255,0.12);font-size:13px;color:#C9D3E2">[Admin name]<br><span style="font-size:12px;opacity:0.7">Owner · 2FA on</span></div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;padding:22px 28px 28px;box-sizing:border-box">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 style="margin:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px">Plans and speeds</h1>
+        <span class="pill" style="color:#B45309;background:#FDF1E1">Sample data</span>
+      </div>
+      <button style="height:38px;padding:0 16px;border:0;border-radius:9px;background:#0F766E;color:#FFFFFF;font-size:13.5px;font-weight:600">New plan</button>
+    </div>
+
+    <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start">
+
+      <!-- Plan list -->
+      <section style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:8px">
+        <div class="pl"><div><div style="font-weight:600;font-size:14.5px">Hourly</div><div class="sub">Time · 60 min · 1 device</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#15803D;background:#E4F5EA">Live</span></div></div>
+        <div class="pl sel"><div><div style="font-weight:600;font-size:14.5px">Daily</div><div class="sub">Time · 24 h · 1 device</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#15803D;background:#E4F5EA">Live</span></div></div>
+        <div class="pl"><div><div style="font-weight:600;font-size:14.5px">Weekly</div><div class="sub">Time · 7 d · 3 devices</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#15803D;background:#E4F5EA">Live</span></div></div>
+        <div class="pl"><div><div style="font-weight:600;font-size:14.5px">Monthly</div><div class="sub">Time · 30 d · 3 devices</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#15803D;background:#E4F5EA">Live</span></div></div>
+        <div class="pl"><div><div style="font-weight:600;font-size:14.5px">Data 5 GB</div><div class="sub">Data · 30 d · 2 devices</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#15803D;background:#E4F5EA">Live</span></div></div>
+        <div class="pl"><div><div style="font-weight:600;font-size:14.5px">Weekend pass</div><div class="sub">Time + data · 3 d · 2 devices</div></div><div style="text-align:right"><div style="font-weight:600">₦[price]</div><span class="pill" style="color:#55627A;background:#F3F5F8">Draft</span></div></div>
+      </section>
+
+      <!-- Editor -->
+      <section class="card" style="flex:2.2 1 560px;min-width:0">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:baseline">
+          <h2 style="margin:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px">Edit plan: Daily</h2>
+          <span class="sub">Changes apply to new purchases only. Existing customers keep what they bought.</span>
+        </div>
+
+        <h3 class="h" style="margin-top:18px">Basics</h3>
+        <div class="grid" style="margin-top:10px">
+          <div class="f"><label for="pn">Plan name</label><input id="pn" value="Daily"></div>
+          <div class="f"><label for="pk">Kind</label><select id="pk"><option>Time (counts active time)</option><option>Data</option><option>Time + data</option></select></div>
+          <div class="f"><label for="pp">Price (₦)</label><input id="pp" placeholder="[price]"></div>
+        </div>
+
+        <h3 class="h" style="margin-top:20px">Allowance</h3>
+        <div class="grid" style="margin-top:10px">
+          <div class="f"><label for="pa">Active time budget</label><input id="pa" value="24 hours"><span class="hint">Only minutes when the device is connected and using data</span></div>
+          <div class="f"><label for="pd">Data budget</label><input id="pd" placeholder="None"><span class="hint">Leave empty for time-only plans</span></div>
+          <div class="f"><label for="pv">Valid for</label><input id="pv" value="24 hours"><span class="hint">Plan ends after this, even if time is left</span></div>
+          <div class="f"><label for="ps">Start counting</label><select id="ps"><option>On first connection</option><option>On purchase</option></select></div>
+          <div class="f"><label for="pu">Unused purchase expires after</label><input id="pu" value="90 days"></div>
+        </div>
+
+        <h3 class="h" style="margin-top:20px">Devices and speed</h3>
+        <div class="grid" style="margin-top:10px">
+          <div class="f"><label for="pdv">Devices allowed</label><input id="pdv" value="1"></div>
+          <div class="f"><label for="pc">Device swap cooldown</label><input id="pc" value="24 hours"></div>
+          <div class="f"><label for="pr">Speed profile</label><select id="pr"><option>Standard 5 Mbps</option><option>Plus 10 Mbps</option><option>Basic 2 Mbps</option></select></div>
+          <div class="f"><label for="pb">Burst</label><input id="pb" value="Up to 10 Mbps for 20 s"></div>
+        </div>
+
+        <h3 class="h" style="margin-top:20px">Fair use</h3>
+        <div class="grid" style="margin-top:10px">
+          <div class="f"><label for="pf">Daily cap before slowing</label><input id="pf" value="4 GB"></div>
+          <div class="f"><label for="pt">Slowed profile</label><select id="pt"><option>Limited 1 Mbps</option><option>Basic 2 Mbps</option></select></div>
+          <div class="f"><label for="pi">Idle timeout</label><input id="pi" value="5 minutes"></div>
+          <div class="f"><label for="pth">Counts as active above</label><input id="pth" value="20 KB per minute"></div>
+        </div>
+
+        <div style="margin-top:22px;padding-top:16px;border-top:1px solid #DCE2EA;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center">
+          <label style="display:flex;align-items:center;gap:10px;font-size:13.5px"><input type="checkbox" checked style="width:18px;height:18px;accent-color:#0F766E;margin:0">Show this plan in the portal</label>
+          <div style="display:flex;gap:8px"><button class="btn">Archive</button><button class="btn">Cancel</button><button class="btn" style="background:#0F766E;border-color:#0F766E;color:#FFFFFF">Save plan</button></div>
+        </div>
+      </section>
+
+      <!-- Preview -->
+      <section style="flex:0 1 300px;min-width:260px">
+        <div class="sub" style="margin-bottom:8px;font-weight:600">Customer preview</div>
+        <div style="background:#E3F3F1;border:2px solid #0F766E;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <span style="width:20px;height:20px;border-radius:50%;border:6px solid #0F766E;box-sizing:border-box;flex:none;background:#FFFFFF"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:16px">Daily</div>
+            <div style="margin-top:3px;font-size:13px;color:#3E4B63">24 hours of active use from your first connection</div>
+            <div style="margin-top:8px;display:flex;gap:6px"><span style="font-size:11.5px;font-weight:500;color:#0B5A54;background:#FFFFFF;border-radius:6px;padding:3px 7px">1 device</span><span style="font-size:11.5px;font-weight:500;color:#0B5A54;background:#FFFFFF;border-radius:6px;padding:3px 7px">5 Mbps</span></div>
+          </div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px">₦[price]</div>
+        </div>
+        <div class="sub" style="margin-top:10px;line-height:1.5">This card updates as you edit. Fair-use and idle rules are enforced by the system and shown to customers on the connected screen.</div>
+      </section>
+
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

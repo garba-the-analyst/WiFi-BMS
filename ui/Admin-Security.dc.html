@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin: security and audit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif;color:#0E1726}
+a{color:#0F766E}a:hover{color:#0B5A54}
+button,input,select{font-family:inherit}
+.nav{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:#C9D3E2;text-decoration:none}
+.nav:hover{background:rgba(255,255,255,0.08);color:#FFFFFF}
+.nav.on{background:#0F766E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #DCE2EA;border-radius:14px;padding:18px}
+.h{margin:0;font-size:14px;font-weight:600}
+.sub{font-size:12.5px;color:#55627A}
+.pill{font-size:11.5px;font-weight:600;border-radius:6px;padding:3px 8px;white-space:nowrap}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-size:12px;font-weight:600;color:#55627A;padding:8px 10px;border-bottom:1px solid #DCE2EA}
+td{padding:10px;border-bottom:1px solid #E6EBF1}
+td.n,th.n{text-align:right}
+.btn{height:34px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:600;border:1px solid #C5CEDA;background:#FFFFFF;color:#0E1726}
+.g{color:#15803D;background:#E4F5EA}.a{color:#B45309;background:#FDF1E1}.r{color:#B42318;background:#FDEBEA}.b{color:#2457C5;background:#E8EFFC}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;width:100%;min-height:1000px;background:#F3F5F8;font-family:Inter,system-ui,sans-serif;color:#0E1726">
+
+  <aside style="flex:0 0 240px;background:#0E1726;padding:20px 14px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 6px 14px">
+      <div style="width:34px;height:34px;border-radius:9px;background:#0F766E;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1" fill="#FFFFFF"/></svg></div>
+      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:#FFFFFF">[Platform name]</span>
+    </div>
+    <button style="display:flex;align-items:center;justify-content:space-between;height:40px;margin-bottom:10px;padding:0 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;background:transparent;color:#FFFFFF;font-size:13.5px">[Tenant: Minna Wi-Fi]<span aria-hidden="true">▾</span></button>
+    <a class="nav" href="Admin-Overview.dc.html">Overview</a>
+    <a class="nav" href="Admin-Analytics.dc.html">Analytics</a>
+    <a class="nav" href="Admin-Customers.dc.html">Customers</a>
+    <a class="nav" href="Admin-Plans.dc.html">Plans</a>
+    <a class="nav" href="Admin-Network.dc.html">Network</a>
+    <a class="nav on" href="Admin-Security.dc.html">Security and audit</a>
+    <a class="nav" href="#">Settings</a>
+    <div style="margin-top:auto;padding:12px 6px 0;border-top:1px solid rgba(255,255,255,0.12);font-size:13px;color:#C9D3E2">[Admin name]<br><span style="font-size:12px;opacity:0.7">Owner · 2FA on</span></div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;padding:22px 28px 28px;box-sizing:border-box">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 style="margin:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px">Security and audit</h1>
+        <span class="pill a">Sample data</span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <select aria-label="Period" style="height:38px;border:1px solid #C5CEDA;border-radius:9px;background:#FFFFFF;padding:0 10px;font-size:13.5px"><option>Last 24 hours</option><option>Last 7 days</option><option>Last 30 days</option><option>Custom</option></select>
+        <button style="height:38px;padding:0 14px;border:1px solid #0F766E;border-radius:9px;background:#FFFFFF;color:#0F766E;font-size:13.5px;font-weight:600">Export CSV</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+      <div class="card"><div class="sub">Hotspot sharing flags</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px;color:#B45309">[7]</div><div class="sub" style="margin-top:4px">2 need review</div></div>
+      <div class="card"><div class="sub">Failed sign-ins</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">[19]</div><div class="sub" style="margin-top:4px">3 accounts locked</div></div>
+      <div class="card"><div class="sub">Rejected code attempts</div><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;margin-top:6px">[41]</div><div class="sub" style="margin-top:4px">1 address rate-limited</div></div>
+      <div class="card" style="border-color:#BFE3CB;background:#F4FBF6"><div class="sub">Audit chain</div><div style="display:flex;align-items:center;gap:8px;margin-top:8px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;color:#15803D">Verified</span></div><div class="sub" style="margin-top:4px">[48,210] entries · checked 6 min ago</div></div>
+    </div>
+
+    <section class="card" style="margin-top:14px;overflow-x:auto">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:baseline">
+        <h2 class="h" style="font-size:16px">Hotspot sharing flags</h2>
+        <span class="sub">Scored from system fingerprints, TTL, connection counts and slot use</span>
+      </div>
+      <table style="margin-top:8px;min-width:820px">
+        <thead><tr><th>Customer</th><th>Device</th><th>Site</th><th class="n">Risk</th><th>Main signals</th><th>Action taken</th><th></th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:600">[Customer A]</td><td>Android phone</td><td>Site 1</td><td class="n" style="color:#B42318;font-weight:700">78</td><td>Two fingerprints, TTL one lower</td><td><span class="pill r">Disconnected</span></td><td><button class="btn">Review</button></td></tr>
+          <tr><td style="font-weight:600">K7M2 QX4R</td><td>iOS phone</td><td>Site 2</td><td class="n" style="color:#B45309;font-weight:700">61</td><td>High connection count</td><td><span class="pill a">Throttled</span></td><td><button class="btn">Review</button></td></tr>
+          <tr><td style="font-weight:600">[Customer D]</td><td>Windows laptop</td><td>Site 1</td><td class="n" style="color:#B45309;font-weight:700">44</td><td>TTL one lower</td><td><span class="pill b">Warned</span></td><td><button class="btn">Review</button></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:14px">
+      <section class="card" style="flex:1 1 360px;min-width:0">
+        <h2 class="h">Sign-in and access events</h2>
+        <div style="margin-top:6px;font-size:13.5px">
+          <div style="display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-top:1px solid #E6EBF1;border-top-color:transparent"><span>Failed sign-in · 0801 ••• 4521</span><span class="sub">3 min ago</span></div>
+          <div style="display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-top:1px solid #E6EBF1"><span>Account locked after 5 attempts · 0705 ••• 6640</span><span class="sub">22 min ago</span></div>
+          <div style="display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-top:1px solid #E6EBF1"><span>Wrong access code ×8 · one address</span><span class="sub">1 h ago</span></div>
+          <div style="display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-top:1px solid #E6EBF1"><span>Admin sign-in · [Admin name] · new device</span><span class="sub">3 h ago</span></div>
+          <div style="display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-top:1px solid #E6EBF1"><span>Payment webhook rejected · bad signature</span><span class="sub">5 h ago</span></div>
+        </div>
+      </section>
+
+      <section class="card" style="flex:1.4 1 460px;min-width:0;overflow-x:auto">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center">
+          <h2 class="h">Audit log</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="search" aria-label="Search audit log" placeholder="Search actor, action or ID" style="width:210px;height:34px;box-sizing:border-box;border:1px solid #C5CEDA;border-radius:8px;padding:0 10px;font-size:13px">
+            <button class="btn">Verify chain</button>
+          </div>
+        </div>
+        <table style="margin-top:6px;min-width:520px">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entry hash</th></tr></thead>
+          <tbody>
+            <tr><td>16:31</td><td>system</td><td>session.disconnect</td><td class="mono">9f3a…c21d</td></tr>
+            <tr><td>16:02</td><td>[Admin name]</td><td>plan.update · Daily</td><td class="mono">5b0e…7a94</td></tr>
+            <tr><td>15:48</td><td>system</td><td>payment.confirmed</td><td class="mono">c71d…02be</td></tr>
+            <tr><td>13:05</td><td>system</td><td>fair_use.throttle</td><td class="mono">e4a8…19f0</td></tr>
+            <tr><td>11:20</td><td>[Admin name]</td><td>device.slot_reset</td><td class="mono">2d6c…b3a7</td></tr>
+            <tr><td>08:12</td><td>[Customer A]</td><td>session.start</td><td class="mono">8a15…f6e2</td></tr>
+          </tbody>
+        </table>
+        <div class="sub" style="margin-top:10px;line-height:1.5">Each entry carries the hash of the one before it. Editing or deleting any entry breaks the chain and the check fails.</div>
+      </section>
+    </div>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
