@@ -7,6 +7,8 @@
 //! * `FALLBACK_EMAIL_DOMAIN` domain for placeholder payer emails (default `guest.invalid`)
 //! * `TRUST_PROXY`          `1` when behind Caddy or another proxy you control (default off)
 //! * `BIND`                  listen address (default `0.0.0.0:8080`)
+//!
+//! Subcommand: `create-admin <tenant-slug> <email> <role>` (password in `ADMIN_PASSWORD`).
 
 use std::sync::Arc;
 
@@ -45,6 +47,24 @@ async fn main() {
         // Replace with your SMS provider's implementation of `SmsSender`.
         sms: Arc::new(platform_api::sms::DisabledSms),
     };
+
+    // `platform-api create-admin <tenant-slug> <email> <role>` with ADMIN_PASSWORD set.
+    // Creates the first operator login, then exits. The password stays out of shell history and process lists.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("create-admin") {
+        let (Some(slug), Some(email), Some(role)) = (args.get(2), args.get(3), args.get(4)) else {
+            eprintln!("usage: ADMIN_PASSWORD=... platform-api create-admin <tenant-slug> <email> <owner|operator|viewer>");
+            std::process::exit(2);
+        };
+        match platform_api::admin::create_admin(&state, slug, email, &env("ADMIN_PASSWORD"), role).await {
+            Ok(id) => println!("created admin {id}. Sign in, then enrol 2-step verification."),
+            Err(e) => {
+                eprintln!("could not create admin: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
 
     let bind = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8080".into());
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind address");

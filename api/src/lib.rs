@@ -16,6 +16,7 @@
 //! Every request runs inside a tenant-scoped transaction, so the database's
 //! row-level security keeps one operator's customers invisible to another.
 
+pub mod admin;
 pub mod auth;
 pub mod codes;
 pub mod db;

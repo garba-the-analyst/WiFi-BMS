@@ -9,7 +9,7 @@
 //! | POST   | `/v1/t/:tenant/webhooks/paystack`           | Paystack              |
 
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::db::{audit, list_active_plans, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
+use crate::admin;
 use crate::member;
 use crate::fulfil::{fulfil_payment, Fulfilment};
 use crate::orders::{create_order, order_status, CreateOrder, CreatedOrder, OrderStatus};
@@ -46,6 +47,27 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/members/wallet/buy", post(m_buy))
         .route("/v1/t/:tenant/members/devices", get(m_devices))
         .route("/v1/t/:tenant/members/devices/swap", post(m_swap))
+        .route("/v1/t/:tenant/admin/login", post(a_login))
+        .route("/v1/t/:tenant/admin/logout", post(a_logout))
+        .route("/v1/t/:tenant/admin/totp/setup", post(a_totp_setup))
+        .route("/v1/t/:tenant/admin/totp/confirm", post(a_totp_confirm))
+        .route("/v1/t/:tenant/admin/overview", get(a_overview))
+        .route("/v1/t/:tenant/admin/analytics/:what", get(a_analytics))
+        .route("/v1/t/:tenant/admin/customers", get(a_customers))
+        .route("/v1/t/:tenant/admin/customers/:id", get(a_customer))
+        .route("/v1/t/:tenant/admin/plans", get(a_plans).post(a_plan_create))
+        .route("/v1/t/:tenant/admin/plans/:id", axum::routing::put(a_plan_update))
+        .route("/v1/t/:tenant/admin/plans/:id/active", axum::routing::put(a_plan_active))
+        .route("/v1/t/:tenant/admin/speed-profiles", get(a_profiles).post(a_profile_create))
+        .route("/v1/t/:tenant/admin/network", get(a_network))
+        .route("/v1/t/:tenant/admin/node-tokens", post(a_token_create))
+        .route("/v1/t/:tenant/admin/node-tokens/:id/revoke", post(a_token_revoke))
+        .route("/v1/t/:tenant/admin/security", get(a_security))
+        .route("/v1/t/:tenant/admin/audit", get(a_audit))
+        .route("/v1/t/:tenant/admin/audit/verify", get(a_audit_verify))
+        .route("/v1/t/:tenant/admin/audit.csv", get(a_audit_csv))
+        .route("/v1/t/:tenant/admin/secrets/paystack", axum::routing::put(a_paystack_key))
+        .route("/v1/node/metrics", post(node_metrics))
         .route("/v1/node/radius/authorize", post(node_authorize))
         .route("/v1/node/radius/accounting", post(node_accounting))
         // Webhook and order bodies are small. Refuse anything large before reading it.
@@ -225,4 +247,93 @@ async fn m_devices(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) ->
 }
 async fn m_swap(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<member::Swap>) -> Result<Json<serde_json::Value>> {
     Ok(Json(member::swap_device(&st, &t, &h, b).await?))
+}
+
+// ---- Admin -----------------------------------------------------------------
+
+type J = Result<Json<serde_json::Value>>;
+
+#[derive(serde::Deserialize, Default)]
+struct Q {
+    range: Option<String>,
+    q: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    action: Option<String>,
+    before: Option<i64>,
+    from: Option<i64>,
+}
+
+async fn a_login(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::Login>) -> J {
+    Ok(Json(admin::login(&st, &t, &h, b).await?))
+}
+async fn a_logout(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::logout(&st, &t, &h).await?))
+}
+async fn a_totp_setup(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::totp_setup(&st, &t, &h).await?))
+}
+async fn a_totp_confirm(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::Confirm>) -> J {
+    Ok(Json(admin::totp_confirm(&st, &t, &h, b).await?))
+}
+async fn a_overview(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(admin::overview(&st, &t, &h, q.range.as_deref()).await?))
+}
+async fn a_analytics(State(st): State<AppState>, Path((t, what)): Path<(String, String)>, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(admin::analytics(&st, &t, &h, &what, q.range.as_deref()).await?))
+}
+async fn a_customers(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(admin::customers(&st, &t, &h, q.q.as_deref(), q.limit, q.offset).await?))
+}
+async fn a_customer(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(admin::customer_detail(&st, &t, &h, id).await?))
+}
+async fn a_plans(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::list_plans(&st, &t, &h).await?))
+}
+async fn a_plan_create(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::PlanIn>) -> J {
+    Ok(Json(admin::save_plan(&st, &t, &h, None, b).await?))
+}
+async fn a_plan_update(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<admin::PlanIn>) -> J {
+    Ok(Json(admin::save_plan(&st, &t, &h, Some(id), b).await?))
+}
+#[derive(serde::Deserialize)]
+struct Active {
+    active: bool,
+}
+async fn a_plan_active(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<Active>) -> J {
+    Ok(Json(admin::set_plan_active(&st, &t, &h, id, b.active).await?))
+}
+async fn a_profiles(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::list_profiles(&st, &t, &h).await?))
+}
+async fn a_profile_create(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::ProfileIn>) -> J {
+    Ok(Json(admin::create_profile(&st, &t, &h, b).await?))
+}
+async fn a_network(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::network(&st, &t, &h).await?))
+}
+async fn a_token_create(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::NewToken>) -> J {
+    Ok(Json(admin::create_node_token(&st, &t, &h, b).await?))
+}
+async fn a_token_revoke(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(admin::revoke_node_token(&st, &t, &h, id).await?))
+}
+async fn a_security(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::security(&st, &t, &h).await?))
+}
+async fn a_audit(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(admin::audit_list(&st, &t, &h, q.action.as_deref(), q.before, q.limit).await?))
+}
+async fn a_audit_verify(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(admin::audit_verify(&st, &t, &h).await?))
+}
+async fn a_audit_csv(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> Result<axum::response::Response> {
+    admin::audit_csv(&st, &t, &h, q.from).await
+}
+async fn a_paystack_key(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::PaystackKey>) -> J {
+    Ok(Json(admin::set_paystack_key(&st, &t, &h, b).await?))
+}
+async fn node_metrics(State(st): State<AppState>, h: HeaderMap, Json(b): Json<admin::MetricsIn>) -> J {
+    Ok(Json(admin::node_metrics(&st, &h, b).await?))
 }
