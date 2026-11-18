@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::admin::{authenticate, Role};
+use crate::admin::{authenticate, Perm};
 use crate::db::{audit, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
 use crate::AppState;
@@ -102,7 +102,7 @@ pub async fn list_orders(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Orders).await?;
     if let Some(s) = status {
         if !["created", "pending", "paid", "provisioned", "failed", "expired", "refund_flagged", "refunded"].contains(&s) {
             return Err(AppError::BadRequest("unknown status".into()));
@@ -131,7 +131,7 @@ pub async fn list_orders(
 
 /// Admin: the refund queue and history.
 pub async fn list(st: &AppState, tenant: &str, h: &HeaderMap, status: Option<&str>) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Orders).await?;
     if let Some(s) = status {
         if !["requested", "processed", "declined", "failed"].contains(&s) {
             return Err(AppError::BadRequest("unknown status".into()));
@@ -159,7 +159,7 @@ pub struct Decision {
 
 /// Admin (operator+): turn a customer's request down.
 pub async fn decline(st: &AppState, tenant: &str, h: &HeaderMap, refund_id: Uuid, d: Decision) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Operator).await?;
+    let a = authenticate(st, tenant, h, Perm::RefundDecide).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let n = sqlx::query("UPDATE refunds SET status = 'declined', decided_by = $2, decided_at = now(), note = $3 WHERE id = $1 AND status = 'requested'")
         .bind(refund_id)
@@ -178,7 +178,7 @@ pub async fn decline(st: &AppState, tenant: &str, h: &HeaderMap, refund_id: Uuid
 
 /// Admin (owner): refund an order now.
 pub async fn execute(st: &AppState, tenant_slug: &str, h: &HeaderMap, order_id: Uuid, d: Decision) -> Result<Value> {
-    let a = authenticate(st, tenant_slug, h, Role::Owner).await?;
+    let a = authenticate(st, tenant_slug, h, Perm::RefundExecute).await?;
     let note: Option<String> = d.note.map(|n| n.trim().chars().take(500).collect());
     match run(st, &a, order_id, note.as_deref()).await {
         Ok(v) => Ok(v),
@@ -223,6 +223,11 @@ async fn run(st: &AppState, a: &crate::admin::AdminCtx, order_id: Uuid, note: Op
     // What was actually received. A `payments` row is only written after Paystack's own Verify Transaction
     // said "success"; on a wrong-amount order it is stored with verified = false (it did not match the order),
     // but the money is real, so that row is exactly what must be returned.
+    if paid_with == "cash" || paid_with == "voucher" {
+        return Err(AppError::BadRequest(
+            "cash and voucher orders were not paid through this system, so they are refunded by hand. Cancel the voucher instead".into(),
+        ));
+    }
     let amount: i64 = if paid_with == "wallet" {
         o.try_get("amount_kobo")?
     } else {

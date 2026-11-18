@@ -45,6 +45,7 @@ async fn main() {
             tick.tick().await;
             bg.replay().await;
             bg.send_metrics(&[]).await;
+            bg.flush_problems().await;
         }
     });
 

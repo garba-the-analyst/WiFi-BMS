@@ -125,9 +125,10 @@ async fn world() -> Option<World> {
         pool: app.clone(),
         gateway: gateway.clone(),
         master_key: key,
-        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false },
+        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false, require_2fa: false },
         limiter: Arc::new(platform_api::auth::RateLimiter::new()),
         sms: Arc::new(platform_api::sms::LogSms),
+        mailer: Arc::new(platform_api::mail::MemoryMailer::default()),
     };
     Some(World { app, admin, gateway, state, slug, tenant, plan_id })
 }

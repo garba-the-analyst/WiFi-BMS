@@ -15,9 +15,10 @@ fn app() -> axum::Router {
         pool,
         gateway: Arc::new(platform_api::paystack::PaystackHttp::new()),
         master_key: MasterKey::from_hex(&"00".repeat(32)).unwrap(),
-        config: Config { public_base_url: "https://w.test".into(), fallback_email_domain: "w.test".into(), trust_proxy: false },
+        config: Config { public_base_url: "https://w.test".into(), fallback_email_domain: "w.test".into(), trust_proxy: false, require_2fa: false },
         limiter: Arc::new(RateLimiter::new()),
         sms: Arc::new(platform_api::sms::DisabledSms),
+        mailer: Arc::new(platform_api::mail::MemoryMailer::default()),
     };
     harden(router(state), parse_origins("https://portal.example.com"))
 }

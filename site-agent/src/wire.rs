@@ -111,3 +111,14 @@ mod tests {
         assert_eq!(v["status"], "start");
     }
 }
+
+/// One problem to show in the admin error log. `details.at` is when it happened at the site (seconds since 1970),
+/// because it may be sent later, after the internet comes back.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ErrorEvent {
+    pub source: &'static str,
+    pub severity: &'static str,
+    pub code: &'static str,
+    pub message: String,
+    pub details: serde_json::Value,
+}

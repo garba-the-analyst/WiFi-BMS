@@ -26,6 +26,7 @@ use crate::paystack::{signature_is_valid, WebhookEvent};
 use crate::radius::{self, AccountingReply, AccountingRequest, AuthorizeReply, AuthorizeRequest, ConnectRequest, Ticket};
 use crate::refunds;
 use crate::AppState;
+use crate::{complaints, errapi, staff, tenants, vouchers};
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -49,9 +50,34 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/members/devices", get(m_devices))
         .route("/v1/t/:tenant/members/devices/swap", post(m_swap))
         .route("/v1/t/:tenant/admin/login", post(a_login))
+        .route("/v1/t/:tenant/admin/login/verify", post(a_login_verify))
         .route("/v1/t/:tenant/admin/logout", post(a_logout))
-        .route("/v1/t/:tenant/admin/totp/setup", post(a_totp_setup))
-        .route("/v1/t/:tenant/admin/totp/confirm", post(a_totp_confirm))
+        .route("/v1/t/:tenant/admin/me", get(a_me))
+        .route("/v1/t/:tenant/admin/password", axum::routing::put(a_password))
+        .route("/v1/t/:tenant/admin/2fa/start", post(a_mfa_start))
+        .route("/v1/t/:tenant/admin/2fa/confirm", post(a_mfa_confirm))
+        .route("/v1/t/:tenant/admin/users", get(a_users).post(a_user_create))
+        .route("/v1/t/:tenant/admin/users/:id", axum::routing::put(a_user_update).delete(a_user_delete))
+        .route("/v1/t/:tenant/admin/users/:id/reset-password", post(a_user_reset_password))
+        .route("/v1/t/:tenant/admin/users/:id/reset-2fa", post(a_user_reset_mfa))
+        .route("/v1/t/:tenant/admin/users/:id/activity", get(a_user_activity))
+        .route("/v1/t/:tenant/admin/vouchers", get(a_vouchers))
+        .route("/v1/t/:tenant/admin/vouchers/manual", post(a_voucher_manual))
+        .route("/v1/t/:tenant/admin/vouchers/special", post(a_voucher_special))
+        .route("/v1/t/:tenant/admin/vouchers/:id/revoke", post(a_voucher_revoke))
+        .route("/v1/t/:tenant/complaints", post(complaint_submit))
+        .route("/v1/t/:tenant/admin/complaints", get(a_complaints))
+        .route("/v1/t/:tenant/admin/complaints/:id", get(a_complaint).put(a_complaint_update))
+        .route("/v1/t/:tenant/admin/complaints/:id/notes", post(a_complaint_note))
+        .route("/v1/t/:tenant/admin/errors", get(a_errors))
+        .route("/v1/t/:tenant/admin/errors.csv", get(a_errors_csv))
+        .route("/v1/t/:tenant/admin/errors/summary", get(a_errors_summary))
+        .route("/v1/t/:tenant/admin/errors/:id", get(a_error))
+        .route("/v1/t/:tenant/admin/errors/:id/resolve", post(a_error_resolve))
+        .route("/v1/t/:tenant/client-errors", post(client_error))
+        .route("/v1/t/:tenant/brand", get(brand))
+        .route("/v1/t/:tenant/admin/brand", axum::routing::put(a_brand))
+        .route("/v1/node/errors", post(node_errors))
         .route("/v1/t/:tenant/admin/overview", get(a_overview))
         .route("/v1/t/:tenant/admin/analytics/:what", get(a_analytics))
         .route("/v1/t/:tenant/admin/customers", get(a_customers))
@@ -78,6 +104,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/node/radius/accounting", post(node_accounting))
         // Webhook and order bodies are small. Refuse anything large before reading it.
         .layer(DefaultBodyLimit::max(64 * 1024))
+        .layer(tower_http::catch_panic::CatchPanicLayer::custom(crate::errlog::on_panic))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::errlog::capture))
         .with_state(state)
 }
 
@@ -242,19 +270,105 @@ struct Q {
     before: Option<i64>,
     from: Option<i64>,
     status: Option<String>,
+    kind: Option<String>,
+    actor: Option<String>,
 }
 
-async fn a_login(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::Login>) -> J {
-    Ok(Json(admin::login(&st, &t, &h, b).await?))
+async fn a_login(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::Login>) -> J {
+    Ok(Json(staff::login(&st, &t, &h, b).await?))
+}
+async fn a_login_verify(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::Verify>) -> J {
+    Ok(Json(staff::login_verify(&st, &t, &h, b).await?))
 }
 async fn a_logout(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
     Ok(Json(admin::logout(&st, &t, &h).await?))
 }
-async fn a_totp_setup(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
-    Ok(Json(admin::totp_setup(&st, &t, &h).await?))
+async fn a_me(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(staff::me(&st, &t, &h).await?))
 }
-async fn a_totp_confirm(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::Confirm>) -> J {
-    Ok(Json(admin::totp_confirm(&st, &t, &h, b).await?))
+async fn a_password(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::ChangePassword>) -> J {
+    Ok(Json(staff::change_password(&st, &t, &h, b).await?))
+}
+async fn a_mfa_start(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::StartMfa>) -> J {
+    Ok(Json(staff::mfa_start(&st, &t, &h, b).await?))
+}
+async fn a_mfa_confirm(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::Verify>) -> J {
+    Ok(Json(staff::mfa_confirm(&st, &t, &h, b).await?))
+}
+async fn a_users(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(staff::list_users(&st, &t, &h, q.status.as_deref() == Some("all")).await?))
+}
+async fn a_user_create(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<staff::NewUser>) -> J {
+    Ok(Json(staff::create_user(&st, &t, &h, b).await?))
+}
+async fn a_user_update(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<staff::UserPatch>) -> J {
+    Ok(Json(staff::update_user(&st, &t, &h, id, b).await?))
+}
+async fn a_user_delete(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(staff::delete_user(&st, &t, &h, id).await?))
+}
+async fn a_user_reset_password(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<staff::ResetPassword>) -> J {
+    Ok(Json(staff::reset_password(&st, &t, &h, id, b).await?))
+}
+async fn a_user_reset_mfa(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(staff::reset_mfa(&st, &t, &h, id).await?))
+}
+async fn a_user_activity(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(staff::user_activity(&st, &t, &h, id, q.before, q.limit).await?))
+}
+async fn a_vouchers(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(vouchers::list(&st, &t, &h, q.kind.as_deref(), q.q.as_deref(), q.limit).await?))
+}
+async fn a_voucher_manual(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<vouchers::ManualSale>) -> J {
+    Ok(Json(vouchers::manual_sale(&st, &t, &h, b).await?))
+}
+async fn a_voucher_special(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<vouchers::SpecialVoucher>) -> J {
+    Ok(Json(vouchers::special_voucher(&st, &t, &h, b).await?))
+}
+async fn a_voucher_revoke(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(vouchers::revoke(&st, &t, &h, id).await?))
+}
+async fn complaint_submit(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<complaints::NewComplaint>) -> J {
+    Ok(Json(complaints::submit(&st, &t, &h, b).await?))
+}
+async fn a_complaints(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(complaints::list(&st, &t, &h, q.status.as_deref(), q.q.as_deref()).await?))
+}
+async fn a_complaint(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(complaints::detail(&st, &t, &h, id).await?))
+}
+async fn a_complaint_update(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<complaints::Update>) -> J {
+    Ok(Json(complaints::update(&st, &t, &h, id, b).await?))
+}
+async fn a_complaint_note(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<complaints::Note>) -> J {
+    Ok(Json(complaints::add_note(&st, &t, &h, id, b).await?))
+}
+async fn a_errors(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(f): Query<errapi::Filter>) -> J {
+    Ok(Json(errapi::list(&st, &t, &h, f).await?))
+}
+async fn a_errors_csv(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(f): Query<errapi::Filter>) -> Result<axum::response::Response> {
+    errapi::csv(&st, &t, &h, f).await
+}
+async fn a_errors_summary(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
+    Ok(Json(errapi::summary(&st, &t, &h).await?))
+}
+async fn a_error(State(st): State<AppState>, Path((t, id)): Path<(String, i64)>, h: HeaderMap) -> J {
+    Ok(Json(errapi::detail(&st, &t, &h, id).await?))
+}
+async fn a_error_resolve(State(st): State<AppState>, Path((t, id)): Path<(String, i64)>, h: HeaderMap, body: Option<Json<errapi::Resolve>>) -> J {
+    Ok(Json(errapi::resolve(&st, &t, &h, id, body.map(|b| b.0).unwrap_or_default()).await?))
+}
+async fn client_error(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<errapi::ClientError>) -> J {
+    Ok(Json(errapi::client_error(&st, &t, &h, b).await?))
+}
+async fn node_errors(State(st): State<AppState>, h: HeaderMap, Json(b): Json<errapi::NodeErrors>) -> J {
+    Ok(Json(errapi::node_errors(&st, &h, b).await?))
+}
+async fn brand(State(st): State<AppState>, Path(t): Tenant) -> J {
+    Ok(Json(tenants::brand(&st, &t).await?))
+}
+async fn a_brand(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<tenants::BrandIn>) -> J {
+    Ok(Json(tenants::set_brand(&st, &t, &h, b).await?))
 }
 async fn a_overview(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
     Ok(Json(admin::overview(&st, &t, &h, q.range.as_deref()).await?))
@@ -303,7 +417,7 @@ async fn a_security(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -
     Ok(Json(admin::security(&st, &t, &h).await?))
 }
 async fn a_audit(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
-    Ok(Json(admin::audit_list(&st, &t, &h, q.action.as_deref(), q.before, q.limit).await?))
+    Ok(Json(admin::audit_list(&st, &t, &h, q.action.as_deref(), q.actor.as_deref(), q.before, q.limit).await?))
 }
 async fn a_audit_verify(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap) -> J {
     Ok(Json(admin::audit_verify(&st, &t, &h).await?))

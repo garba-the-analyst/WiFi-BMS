@@ -1,8 +1,7 @@
 //! Operator back office: sign-in with 2-step verification, roles, analytics,
 //! customers, plans, network, security, audit export and secrets.
 //!
-//! Roles: `viewer` reads, `operator` also edits plans and speed profiles,
-//! `owner` also manages node tokens, the Paystack key and other admins.
+//! Roles and what each may do: see [`Role`] and the table in [`allows`].
 //!
 //! Every change is written to the tamper-evident audit log with the admin's id.
 //! Read endpoints build their JSON inside PostgreSQL (`jsonb_agg`), so the
@@ -15,28 +14,115 @@ use serde_json::{json, Value};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use crate::auth::{bearer, check_password_policy, dummy_verify, hash_password, new_token, sha256_hex, verify_password};
+use crate::auth::{bearer, check_password_policy, hash_password, new_token, sha256_hex};
 use crate::db::{audit, load_plan, tenant_id_by_slug, tenant_tx};
 use crate::error::{AppError, Result};
-use crate::totp;
 use crate::AppState;
 
 pub const SESSION_HOURS: i32 = 12;
-const MAX_FAILED: i32 = 5;
-const LOCK_MINUTES: i32 = 15;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// Staff roles.
+///
+/// * `system_admin`: unlimited. Everything, including other staff, manual sales and all staff activity.
+/// * `ceo`: the master account for the business. Everything a system admin can do except the technical
+///   settings (site-agent tokens); manages `admin` and `customer_rep` accounts.
+/// * `admin`: runs the day-to-day. Plans, customers, refund requests, vouchers (including special ones),
+///   errors. Cannot manage staff or see other staff's activity.
+/// * `customer_rep`: front desk. Complaints, customers (to help them), manual voucher and subscription
+///   sales, and the error log. Nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    Viewer,
-    Operator,
-    Owner,
+    SystemAdmin,
+    Ceo,
+    Admin,
+    CustomerRep,
 }
 
-fn role_from(s: &str) -> Role {
-    match s {
-        "owner" => Role::Owner,
-        "operator" => Role::Operator,
-        _ => Role::Viewer,
+pub const ROLE_NAMES: &[&str] = &["system_admin", "ceo", "admin", "customer_rep"];
+
+impl Role {
+    pub fn parse(s: &str) -> Option<Role> {
+        Some(match s {
+            "system_admin" => Role::SystemAdmin,
+            "ceo" => Role::Ceo,
+            "admin" => Role::Admin,
+            "customer_rep" => Role::CustomerRep,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::SystemAdmin => "system_admin",
+            Role::Ceo => "ceo",
+            Role::Admin => "admin",
+            Role::CustomerRep => "customer_rep",
+        }
+    }
+    /// Which roles this role may create, edit, suspend or delete.
+    pub fn manages(self, target: Role) -> bool {
+        match self {
+            Role::SystemAdmin => true,
+            Role::Ceo => matches!(target, Role::Admin | Role::CustomerRep),
+            _ => false,
+        }
+    }
+}
+
+/// One thing a signed-in staff member may be allowed to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Perm {
+    /// Anything every signed-in account may do, including before 2-step verification is set up.
+    SelfService,
+    Dashboard,
+    Customers,
+    PlansRead,
+    PlansWrite,
+    Orders,
+    RefundDecide,
+    RefundExecute,
+    ManualSale,
+    SpecialVoucher,
+    Users,
+    Activity,
+    NodeTokens,
+    Secrets,
+    Brand,
+    ErrorsView,
+    ErrorsResolve,
+    Complaints,
+}
+
+impl Perm {
+    pub const ALL: &'static [(Perm, &'static str)] = &[
+        (Perm::Dashboard, "dashboard"),
+        (Perm::Customers, "customers"),
+        (Perm::PlansRead, "plans_read"),
+        (Perm::PlansWrite, "plans_write"),
+        (Perm::Orders, "orders"),
+        (Perm::RefundDecide, "refund_decide"),
+        (Perm::RefundExecute, "refund_execute"),
+        (Perm::ManualSale, "manual_sale"),
+        (Perm::SpecialVoucher, "special_voucher"),
+        (Perm::Users, "users"),
+        (Perm::Activity, "activity"),
+        (Perm::NodeTokens, "node_tokens"),
+        (Perm::Secrets, "secrets"),
+        (Perm::Brand, "brand"),
+        (Perm::ErrorsView, "errors_view"),
+        (Perm::ErrorsResolve, "errors_resolve"),
+        (Perm::Complaints, "complaints"),
+    ];
+}
+
+/// The whole permission table, in one place.
+pub fn allows(role: Role, perm: Perm) -> bool {
+    use Perm::*;
+    use Role::*;
+    match perm {
+        SelfService | Customers | PlansRead | ManualSale | ErrorsView | Complaints => true,
+        Dashboard | PlansWrite | Orders | RefundDecide | SpecialVoucher | ErrorsResolve => !matches!(role, CustomerRep),
+        RefundExecute | Users | Activity | Brand | Secrets => matches!(role, SystemAdmin | Ceo),
+        NodeTokens => matches!(role, SystemAdmin),
     }
 }
 
@@ -46,23 +132,19 @@ pub struct AdminCtx {
     pub id: Uuid,
     pub email: String,
     pub role: Role,
+    pub mfa_method: String,
 }
 
 impl AdminCtx {
-    fn need(&self, min: Role) -> Result<()> {
-        if self.role >= min {
-            Ok(())
-        } else {
-            Err(AppError::Forbidden)
-        }
-    }
-    fn actor(&self) -> String {
+    pub fn actor(&self) -> String {
         self.id.to_string()
     }
 }
 
-/// Resolve the bearer token to an admin, requiring at least `min`.
-pub async fn authenticate(st: &AppState, tenant_slug: &str, headers: &HeaderMap, min: Role) -> Result<AdminCtx> {
+/// Resolve the bearer token to a staff member and check they may do `perm`.
+/// Unless `require_2fa` is off, an account that has not set up 2-step verification
+/// may only use `Perm::SelfService` endpoints (which include setting it up).
+pub async fn authenticate(st: &AppState, tenant_slug: &str, headers: &HeaderMap, perm: Perm) -> Result<AdminCtx> {
     let token = bearer(headers).ok_or(AppError::Unauthorised)?;
     if !token.starts_with("at_") {
         return Err(AppError::Unauthorised);
@@ -74,138 +156,30 @@ pub async fn authenticate(st: &AppState, tenant_slug: &str, headers: &HeaderMap,
            FROM admin_users u
           WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
             AND u.id = s.admin_user_id AND u.status = 'active'
-        RETURNING u.id, u.email, u.role::text AS role",
+        RETURNING u.id, u.email, u.role, u.mfa_method",
     )
     .bind(sha256_hex(token))
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::Unauthorised)?;
     tx.commit().await?;
-    let ctx = AdminCtx { tenant, id: row.try_get("id")?, email: row.try_get("email")?, role: role_from(&row.try_get::<String, _>("role")?) };
-    ctx.need(min)?;
+    let role = Role::parse(&row.try_get::<String, _>("role")?).ok_or_else(|| AppError::Internal("unknown staff role".into()))?;
+    let ctx = AdminCtx { tenant, id: row.try_get("id")?, email: row.try_get("email")?, role, mfa_method: row.try_get("mfa_method")? };
+    if perm != Perm::SelfService && st.config.require_2fa && ctx.mfa_method == "none" {
+        return Err(AppError::MfaRequired);
+    }
+    if !allows(role, perm) {
+        return Err(AppError::Forbidden);
+    }
     Ok(ctx)
 }
 
-fn ip_of(st: &AppState, h: &HeaderMap) -> Option<String> {
+pub(crate) fn ip_of(st: &AppState, h: &HeaderMap) -> Option<String> {
     crate::auth::client_ip(h, st.config.trust_proxy)
 }
 
-// ---------------------------------------------------------------------------
-// Sign-in, 2-step verification
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-pub struct Login {
-    pub email: String,
-    pub password: String,
-    #[serde(default)]
-    pub totp: Option<String>,
-}
-
-enum Outcome {
-    Ok(Uuid, bool, String),
-    Bad,
-    Locked,
-}
-
-pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: Login) -> Result<Value> {
-    let ip = ip_of(st, headers);
-    st.limiter.hit(&format!("admin-ip:{}", ip.as_deref().unwrap_or("?")), 20, std::time::Duration::from_secs(600))?;
-    let email = req.email.trim().to_ascii_lowercase();
-    st.limiter.hit(&format!("admin:{tenant_slug}:{email}"), 10, std::time::Duration::from_secs(600))?;
-    if req.password.len() > 256 || email.len() > 200 {
-        return Err(AppError::Unauthorised);
-    }
-    let tenant = tenant_id_by_slug(&st.pool, tenant_slug).await?;
-    let mut tx = tenant_tx(&st.pool, tenant).await?;
-    let row = sqlx::query(
-        "SELECT id, password_hash, totp_secret, totp_enabled, status::text AS status, role::text AS role,
-                (locked_until IS NOT NULL AND locked_until > now()) AS locked
-           FROM admin_users WHERE lower(email) = $1 FOR UPDATE",
-    )
-    .bind(&email)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let outcome = match row {
-        None => {
-            dummy_verify(&req.password);
-            Outcome::Bad
-        }
-        Some(r) => {
-            let id: Uuid = r.try_get("id")?;
-            let hash: String = r.try_get("password_hash")?;
-            let enabled: bool = r.try_get("totp_enabled")?;
-            let secret: Option<Vec<u8>> = r.try_get("totp_secret")?;
-            let active = r.try_get::<String, _>("status")? == "active";
-            if r.try_get::<bool, _>("locked")? {
-                Outcome::Locked
-            } else if verify_password(&hash, &req.password) && active && second_step_ok(st, enabled, secret.as_deref(), req.totp.as_deref())? {
-                sqlx::query("UPDATE admin_users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1")
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
-                Outcome::Ok(id, enabled, r.try_get("role")?)
-            } else {
-                sqlx::query(
-                    "UPDATE admin_users SET failed_logins = CASE WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
-                            locked_until = CASE WHEN failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
-                      WHERE id = $1",
-                )
-                .bind(id)
-                .bind(MAX_FAILED)
-                .bind(LOCK_MINUTES)
-                .execute(&mut *tx)
-                .await?;
-                audit(&mut tx, tenant, "admin", Some(&id.to_string()), "admin.login_failed", Some(("admin", &id.to_string())), json!({})).await?;
-                Outcome::Bad
-            }
-        }
-    };
-    match outcome {
-        Outcome::Ok(id, enrolled, role) => {
-            let token = new_token("at");
-            sqlx::query(
-                "INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, expires_at, ip, user_agent)
-                 VALUES ($1, $2, $3, now() + make_interval(hours => $4), $5::inet, $6)",
-            )
-            .bind(tenant)
-            .bind(id)
-            .bind(sha256_hex(&token))
-            .bind(SESSION_HOURS)
-            .bind(ip.as_deref())
-            .bind(headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.chars().take(300).collect::<String>()))
-            .execute(&mut *tx)
-            .await?;
-            audit(&mut tx, tenant, "admin", Some(&id.to_string()), "admin.login", Some(("admin", &id.to_string())), json!({ "totp": enrolled })).await?;
-            tx.commit().await?;
-            Ok(json!({ "token": token, "role": role, "totp_enrolled": enrolled, "expires_in_hours": SESSION_HOURS }))
-        }
-        Outcome::Bad => {
-            tx.commit().await?;
-            Err(AppError::Unauthorised)
-        }
-        Outcome::Locked => {
-            tx.commit().await?;
-            Err(AppError::RateLimited)
-        }
-    }
-}
-
-/// Not enrolled: no second step required (the admin is told to enrol).
-/// Enrolled: a correct current code is required.
-fn second_step_ok(st: &AppState, enabled: bool, secret_enc: Option<&[u8]>, code: Option<&str>) -> Result<bool> {
-    if !enabled {
-        return Ok(true);
-    }
-    let (Some(enc), Some(code)) = (secret_enc, code) else { return Ok(false) };
-    let secret = st.master_key.decrypt(std::str::from_utf8(enc).map_err(|_| AppError::Internal("totp secret unreadable".into()))?)?;
-    let bytes = totp::base32_decode(&secret).ok_or_else(|| AppError::Internal("totp secret unreadable".into()))?;
-    Ok(totp::verify(&bytes, crate::entitlements_db::now_secs() as u64, code).is_some())
-}
-
 pub async fn logout(st: &AppState, tenant_slug: &str, headers: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant_slug, headers, Role::Viewer).await?;
+    let a = authenticate(st, tenant_slug, headers, Perm::SelfService).await?;
     let token = bearer(headers).ok_or(AppError::Unauthorised)?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     sqlx::query("UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1").bind(sha256_hex(token)).execute(&mut *tx).await?;
@@ -213,52 +187,25 @@ pub async fn logout(st: &AppState, tenant_slug: &str, headers: &HeaderMap) -> Re
     Ok(json!({ "ok": true }))
 }
 
-/// Step 1 of enrolment: make a secret and return the QR/URI. Not active until confirmed.
-pub async fn totp_setup(st: &AppState, tenant_slug: &str, headers: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant_slug, headers, Role::Viewer).await?;
-    let raw = totp::new_secret();
-    let enc = st.master_key.encrypt(&totp::base32_encode(&raw))?;
-    let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    sqlx::query("UPDATE admin_users SET totp_secret = $2, totp_enabled = false WHERE id = $1").bind(a.id).bind(enc.as_bytes()).execute(&mut *tx).await?;
-    tx.commit().await?;
-    Ok(json!({ "otpauth_uri": totp::provisioning_uri("WiFi-BMS", &a.email, &raw), "secret": totp::base32_encode(&raw) }))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Confirm {
-    pub code: String,
-}
-
-/// Step 2: prove the authenticator app works, then turn it on.
-pub async fn totp_confirm(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: Confirm) -> Result<Value> {
-    let a = authenticate(st, tenant_slug, headers, Role::Viewer).await?;
-    let mut tx = tenant_tx(&st.pool, a.tenant).await?;
-    let enc: Option<Vec<u8>> = sqlx::query_scalar("SELECT totp_secret FROM admin_users WHERE id = $1").bind(a.id).fetch_one(&mut *tx).await?;
-    if !second_step_ok(st, true, enc.as_deref(), Some(&req.code))? {
-        return Err(AppError::BadRequest("that code is not right. Check your phone's clock and try again".into()));
-    }
-    sqlx::query("UPDATE admin_users SET totp_enabled = true WHERE id = $1").bind(a.id).execute(&mut *tx).await?;
-    audit(&mut tx, a.tenant, "admin", Some(&a.actor()), "admin.totp_enabled", Some(("admin", &a.actor())), json!({})).await?;
-    tx.commit().await?;
-    Ok(json!({ "ok": true }))
-}
-
 /// Used by the `create-admin` command (see main.rs) and tests.
 pub async fn create_admin(st: &AppState, tenant_slug: &str, email: &str, password: &str, role: &str) -> Result<Uuid> {
-    if !["owner", "operator", "viewer"].contains(&role) {
-        return Err(AppError::BadRequest("role must be owner, operator or viewer".into()));
+    if Role::parse(role).is_none() {
+        return Err(AppError::BadRequest("role must be system_admin, ceo, admin or customer_rep".into()));
     }
     check_password_policy(password, "")?;
     let tenant = tenant_id_by_slug(&st.pool, tenant_slug).await?;
     let mut tx = tenant_tx(&st.pool, tenant).await?;
-    let id: Uuid =
-        sqlx::query_scalar("INSERT INTO admin_users (tenant_id, email, password_hash, role) VALUES ($1, lower($2), $3, $4::admin_role) RETURNING id")
-            .bind(tenant)
-            .bind(email.trim())
-            .bind(hash_password(password)?)
-            .bind(role)
-            .fetch_one(&mut *tx)
-            .await?;
+    let id: Uuid = sqlx::query_scalar("INSERT INTO admin_users (tenant_id, email, password_hash, role) VALUES ($1, lower($2), $3, $4) RETURNING id")
+        .bind(tenant)
+        .bind(email.trim())
+        .bind(hash_password(password)?)
+        .bind(role)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(d) if d.is_unique_violation() => AppError::BadRequest("a staff account with that email already exists".into()),
+            _ => e.into(),
+        })?;
     audit(&mut tx, tenant, "system", None, "admin.created", Some(("admin", &id.to_string())), json!({ "role": role })).await?;
     tx.commit().await?;
     Ok(id)
@@ -284,7 +231,7 @@ async fn json_of(conn: &mut PgConnection, sql: &str) -> Result<Value> {
 }
 
 pub async fn overview(st: &AppState, tenant: &str, h: &HeaderMap, range: Option<&str>) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Dashboard).await?;
     let (interval, _) = range_of(range)?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let v: Value = sqlx::query_scalar(&format!(
@@ -308,7 +255,7 @@ pub async fn overview(st: &AppState, tenant: &str, h: &HeaderMap, range: Option<
 }
 
 pub async fn analytics(st: &AppState, tenant: &str, h: &HeaderMap, what: &str, range: Option<&str>) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Dashboard).await?;
     let (interval, bucket) = range_of(range)?;
     let tz = "Africa/Lagos";
     let sql = match what {
@@ -348,7 +295,7 @@ pub async fn analytics(st: &AppState, tenant: &str, h: &HeaderMap, what: &str, r
 }
 
 pub async fn customers(st: &AppState, tenant: &str, h: &HeaderMap, q: Option<&str>, limit: Option<i64>, offset: Option<i64>) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Customers).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let pat = format!("%{}%", q.unwrap_or("").trim().replace(['%', '_'], ""));
     let v: Value = sqlx::query_scalar(
@@ -369,7 +316,7 @@ pub async fn customers(st: &AppState, tenant: &str, h: &HeaderMap, q: Option<&st
 }
 
 pub async fn customer_detail(st: &AppState, tenant: &str, h: &HeaderMap, id: Uuid) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Customers).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let acct = json_of(
         &mut tx,
@@ -419,40 +366,63 @@ pub async fn customer_detail(st: &AppState, tenant: &str, h: &HeaderMap, id: Uui
 // ---------------------------------------------------------------------------
 
 pub async fn list_plans(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::PlansRead).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let v = json_of(
         &mut tx,
         "SELECT p.id, p.name, p.kind::text AS kind, p.price_kobo, p.active_seconds, p.data_bytes, p.valid_seconds, p.activate_on_first_use,
-            p.device_limit, p.swap_cooldown_s, p.fup_daily_bytes, p.is_active, s.name AS speed_profile, s.down_kbps, s.up_kbps
-        FROM plans p JOIN speed_profiles s ON s.id = p.speed_profile_id ORDER BY p.price_kobo, p.name",
+            p.device_limit, p.swap_cooldown_s, p.fup_daily_bytes, p.is_active, p.description, s.name AS speed_profile, s.down_kbps, s.up_kbps, p.speed_profile_id
+        FROM plans p JOIN speed_profiles s ON s.id = p.speed_profile_id WHERE NOT p.is_special ORDER BY p.price_kobo, p.name",
     )
     .await?;
     tx.commit().await?;
     Ok(v)
 }
 
+/// Bandwidth for a device when nothing else is chosen: 2 Mbps down and up.
+pub const DEFAULT_KBPS: i32 = 2000;
+
 #[derive(Debug, Deserialize)]
 pub struct PlanIn {
     pub name: String,
+    /// `time`, `data` or `hybrid` (both).
     pub kind: String,
     pub price_kobo: i64,
+    /// Time plans: how much connected time, as a count and a unit (hour, day, week, month).
+    /// Counts only while the customer is really online. Overridden by `active_seconds` if both are given.
+    #[serde(default)]
+    pub duration: Option<crate::vouchers::Duration>,
     #[serde(default)]
     pub active_seconds: Option<i32>,
+    /// Data plans: the allowance in bytes.
     #[serde(default)]
     pub data_bytes: Option<i64>,
-    pub valid_seconds: i32,
+    /// When the plan expires, counted from first use. Defaults: time plans = the duration (at least a day for
+    /// hourly plans); data plans must say.
+    #[serde(default)]
+    pub valid_for: Option<crate::vouchers::Duration>,
+    #[serde(default)]
+    pub valid_seconds: Option<i32>,
     #[serde(default = "yes")]
     pub activate_on_first_use: bool,
+    /// How many devices may use the plan at once.
     #[serde(default = "one")]
     pub device_limit: i16,
     #[serde(default = "day")]
     pub swap_cooldown_s: i32,
-    pub speed_profile_id: Uuid,
+    /// Bandwidth per device: pick a saved profile, or give speeds in kbps, or leave out for 2 Mbps up and down.
+    #[serde(default)]
+    pub speed_profile_id: Option<Uuid>,
+    #[serde(default)]
+    pub down_kbps: Option<i32>,
+    #[serde(default)]
+    pub up_kbps: Option<i32>,
     #[serde(default)]
     pub fup_daily_bytes: Option<i64>,
     #[serde(default)]
     pub fup_speed_profile_id: Option<Uuid>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 fn yes() -> bool {
     true
@@ -464,24 +434,101 @@ fn day() -> i32 {
     86_400
 }
 
+/// Pick the speed profile for a plan or voucher: an existing id, or one matching the given kbps
+/// (created on first use), or the default 2 Mbps.
+pub async fn resolve_profile(conn: &mut PgConnection, tenant: Uuid, id: Option<Uuid>, down: Option<i32>, up: Option<i32>) -> Result<Uuid> {
+    if let Some(id) = id {
+        let ok: Option<Uuid> = sqlx::query_scalar("SELECT id FROM speed_profiles WHERE id = $1").bind(id).fetch_optional(&mut *conn).await?;
+        return ok.ok_or_else(|| AppError::BadRequest("that speed profile does not exist".into()));
+    }
+    let (d, u) = match (down, up) {
+        (None, None) => (DEFAULT_KBPS, DEFAULT_KBPS),
+        (Some(d), Some(u)) => (d, u),
+        (Some(d), None) => (d, d),
+        (None, Some(u)) => (u, u),
+    };
+    if !(64..=1_000_000).contains(&d) || !(64..=1_000_000).contains(&u) {
+        return Err(AppError::BadRequest("speeds must be between 64 kbps and 1,000,000 kbps".into()));
+    }
+    if let Some(found) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM speed_profiles WHERE down_kbps = $1 AND up_kbps = $2 AND burst_down_kbps IS NULL AND burst_up_kbps IS NULL ORDER BY created_at LIMIT 1",
+    )
+    .bind(d)
+    .bind(u)
+    .fetch_optional(&mut *conn)
+    .await?
+    {
+        return Ok(found);
+    }
+    let name = if d == u { format!("{} Mbps", trim_mbps(d)) } else { format!("{} down / {} up Mbps", trim_mbps(d), trim_mbps(u)) };
+    // A taken name (same words, different burst settings) gets a numeric tail rather than an error.
+    for n in 0..20 {
+        let candidate = if n == 0 { name.clone() } else { format!("{name} ({n})") };
+        let r: Option<Uuid> =
+            sqlx::query_scalar("INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id")
+                .bind(tenant)
+                .bind(&candidate)
+                .bind(d)
+                .bind(u)
+                .fetch_optional(&mut *conn)
+                .await?;
+        if let Some(id) = r {
+            return Ok(id);
+        }
+    }
+    Err(AppError::Internal("could not name a speed profile".into()))
+}
+
+fn trim_mbps(kbps: i32) -> String {
+    let m = kbps as f64 / 1000.0;
+    if (m - m.round()).abs() < 0.0005 {
+        format!("{}", m.round() as i64)
+    } else {
+        format!("{m:.2}").trim_end_matches('0').to_string()
+    }
+}
+
+/// Fill in a plan's seconds from the friendly fields. Pure, so it is tested without a database.
+pub fn normalise_plan(p: &PlanIn) -> Result<(Option<i32>, Option<i32>)> {
+    let to_i32 = |s: i64| i32::try_from(s).map_err(|_| AppError::BadRequest("that period is too long".into()));
+    let active = match (p.active_seconds, &p.duration) {
+        (Some(s), _) => Some(s),
+        (None, Some(d)) if p.kind != "data" => Some(to_i32(d.seconds()?)?),
+        _ => None,
+    };
+    let valid = match (p.valid_seconds, &p.valid_for) {
+        (Some(s), _) => Some(s),
+        (None, Some(d)) => Some(to_i32(d.seconds()?)?),
+        // Hourly time plans stay usable for a day so an hour of use is not lost to the clock.
+        (None, None) => active.map(|a| if p.kind == "time" { a.max(86_400) } else { a }),
+    };
+    Ok((active, valid))
+}
+
 /// Create (id = None) or replace (id = Some) a plan. The stored row is
 /// loaded back through the entitlement engine, so a plan that the engine
 /// would reject is never saved. Existing purchases keep their own snapshot.
 pub async fn save_plan(st: &AppState, tenant: &str, h: &HeaderMap, id: Option<Uuid>, p: PlanIn) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Operator).await?;
+    let a = authenticate(st, tenant, h, Perm::PlansWrite).await?;
     if !["time", "data", "hybrid"].contains(&p.kind.as_str()) {
         return Err(AppError::BadRequest("kind must be time, data or hybrid".into()));
     }
     if p.name.trim().is_empty() || p.name.len() > 80 || p.price_kobo < 0 {
         return Err(AppError::BadRequest("give the plan a name and a price of zero or more".into()));
     }
+    let (active_seconds, valid_seconds) = normalise_plan(&p)?;
+    let valid_seconds = valid_seconds.ok_or_else(|| AppError::BadRequest("say how long the plan lasts before it expires".into()))?;
+    let active_seconds = if p.kind == "data" { None } else { active_seconds };
+    let data_bytes = if p.kind == "time" { None } else { p.data_bytes };
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
+    let speed_profile_id = resolve_profile(&mut tx, a.tenant, p.speed_profile_id, p.down_kbps, p.up_kbps).await?;
+    let description = p.description.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.chars().take(200).collect::<String>());
     let sql_vals = "name=$2, kind=$3::plan_kind, price_kobo=$4, active_seconds=$5, data_bytes=$6, valid_seconds=$7, activate_on_first_use=$8,
-                    device_limit=$9, swap_cooldown_s=$10, speed_profile_id=$11, fup_daily_bytes=$12, fup_speed_profile_id=$13";
+                    device_limit=$9, swap_cooldown_s=$10, speed_profile_id=$11, fup_daily_bytes=$12, fup_speed_profile_id=$13, description=$14";
     let plan_id = match id {
         Some(id) => {
-            let n = sqlx::query(&format!("UPDATE plans SET {sql_vals} WHERE id = $1")).bind(id).bind(p.name.trim()).bind(&p.kind).bind(p.price_kobo).bind(p.active_seconds).bind(p.data_bytes)
-                .bind(p.valid_seconds).bind(p.activate_on_first_use).bind(p.device_limit).bind(p.swap_cooldown_s).bind(p.speed_profile_id).bind(p.fup_daily_bytes).bind(p.fup_speed_profile_id)
+            let n = sqlx::query(&format!("UPDATE plans SET {sql_vals} WHERE id = $1 AND NOT is_special")).bind(id).bind(p.name.trim()).bind(&p.kind).bind(p.price_kobo).bind(active_seconds).bind(data_bytes)
+                .bind(valid_seconds).bind(p.activate_on_first_use).bind(p.device_limit).bind(p.swap_cooldown_s).bind(speed_profile_id).bind(p.fup_daily_bytes).bind(p.fup_speed_profile_id).bind(&description)
                 .execute(&mut *tx).await.map_err(plan_db_err)?;
             if n.rows_affected() == 0 {
                 return Err(AppError::NotFound);
@@ -489,11 +536,11 @@ pub async fn save_plan(st: &AppState, tenant: &str, h: &HeaderMap, id: Option<Uu
             id
         }
         None => sqlx::query_scalar(
-            "INSERT INTO plans (tenant_id, name, kind, price_kobo, active_seconds, data_bytes, valid_seconds, activate_on_first_use, device_limit, swap_cooldown_s, speed_profile_id, fup_daily_bytes, fup_speed_profile_id)
-             VALUES ($1, $2, $3::plan_kind, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id",
+            "INSERT INTO plans (tenant_id, name, kind, price_kobo, active_seconds, data_bytes, valid_seconds, activate_on_first_use, device_limit, swap_cooldown_s, speed_profile_id, fup_daily_bytes, fup_speed_profile_id, description)
+             VALUES ($1, $2, $3::plan_kind, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id",
         )
-        .bind(a.tenant).bind(p.name.trim()).bind(&p.kind).bind(p.price_kobo).bind(p.active_seconds).bind(p.data_bytes).bind(p.valid_seconds).bind(p.activate_on_first_use)
-        .bind(p.device_limit).bind(p.swap_cooldown_s).bind(p.speed_profile_id).bind(p.fup_daily_bytes).bind(p.fup_speed_profile_id)
+        .bind(a.tenant).bind(p.name.trim()).bind(&p.kind).bind(p.price_kobo).bind(active_seconds).bind(data_bytes).bind(valid_seconds).bind(p.activate_on_first_use)
+        .bind(p.device_limit).bind(p.swap_cooldown_s).bind(speed_profile_id).bind(p.fup_daily_bytes).bind(p.fup_speed_profile_id).bind(&description)
         .fetch_one(&mut *tx).await.map_err(plan_db_err)?,
     };
     // Engine validation: Internal here means the stored plan failed `Plan::validate`.
@@ -510,7 +557,7 @@ pub async fn save_plan(st: &AppState, tenant: &str, h: &HeaderMap, id: Option<Uu
         Some(&a.actor()),
         if id.is_some() { "plan.updated" } else { "plan.created" },
         Some(("plan", &plan_id.to_string())),
-        json!({ "name": p.name, "price_kobo": p.price_kobo }),
+        json!({ "name": p.name, "price_kobo": p.price_kobo, "kind": p.kind, "devices": p.device_limit }),
     )
     .await?;
     tx.commit().await?;
@@ -528,7 +575,7 @@ fn plan_db_err(e: sqlx::Error) -> AppError {
 }
 
 pub async fn set_plan_active(st: &AppState, tenant: &str, h: &HeaderMap, id: Uuid, active: bool) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Operator).await?;
+    let a = authenticate(st, tenant, h, Perm::PlansWrite).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let n = sqlx::query("UPDATE plans SET is_active = $2 WHERE id = $1").bind(id).bind(active).execute(&mut *tx).await?.rows_affected();
     if n == 0 {
@@ -540,7 +587,7 @@ pub async fn set_plan_active(st: &AppState, tenant: &str, h: &HeaderMap, id: Uui
 }
 
 pub async fn list_profiles(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::PlansRead).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let v = json_of(&mut tx, "SELECT id, name, down_kbps, up_kbps, burst_down_kbps, burst_up_kbps, burst_threshold_kbps, burst_time_s, priority FROM speed_profiles ORDER BY down_kbps").await?;
     tx.commit().await?;
@@ -568,7 +615,7 @@ fn eight() -> i16 {
 }
 
 pub async fn create_profile(st: &AppState, tenant: &str, h: &HeaderMap, p: ProfileIn) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Operator).await?;
+    let a = authenticate(st, tenant, h, Perm::PlansWrite).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO speed_profiles (tenant_id, name, down_kbps, up_kbps, burst_down_kbps, burst_up_kbps, burst_threshold_kbps, burst_time_s, priority)
@@ -596,7 +643,7 @@ pub async fn create_profile(st: &AppState, tenant: &str, h: &HeaderMap, p: Profi
 // ---------------------------------------------------------------------------
 
 pub async fn network(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Dashboard).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let sites = json_of(
         &mut tx,
@@ -625,7 +672,7 @@ pub struct NewToken {
 
 /// The token is returned once; only its SHA-256 is kept.
 pub async fn create_node_token(st: &AppState, tenant: &str, h: &HeaderMap, req: NewToken) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Owner).await?;
+    let a = authenticate(st, tenant, h, Perm::NodeTokens).await?;
     let token = new_token("nt");
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let site: Uuid = sqlx::query_scalar("SELECT id FROM sites WHERE slug = $1").bind(&req.site).fetch_optional(&mut *tx).await?.ok_or(AppError::NotFound)?;
@@ -642,7 +689,7 @@ pub async fn create_node_token(st: &AppState, tenant: &str, h: &HeaderMap, req: 
 }
 
 pub async fn revoke_node_token(st: &AppState, tenant: &str, h: &HeaderMap, id: Uuid) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Owner).await?;
+    let a = authenticate(st, tenant, h, Perm::NodeTokens).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let n = sqlx::query("UPDATE node_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL").bind(id).execute(&mut *tx).await?.rows_affected();
     if n == 0 {
@@ -694,7 +741,7 @@ pub async fn node_metrics(st: &AppState, headers: &HeaderMap, req: MetricsIn) ->
 // ---------------------------------------------------------------------------
 
 pub async fn security(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Dashboard).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let flags = json_of(
         &mut tx,
@@ -716,18 +763,28 @@ pub async fn security(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Valu
     Ok(json!({ "tether_flags": flags, "failures_24h": failures, "refund_flagged_orders": refunds }))
 }
 
-pub async fn audit_list(st: &AppState, tenant: &str, h: &HeaderMap, action: Option<&str>, before: Option<i64>, limit: Option<i64>) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+pub async fn audit_list(
+    st: &AppState,
+    tenant: &str,
+    h: &HeaderMap,
+    action: Option<&str>,
+    actor: Option<&str>,
+    before: Option<i64>,
+    limit: Option<i64>,
+) -> Result<Value> {
+    let a = authenticate(st, tenant, h, Perm::Activity).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let v: Value = sqlx::query_scalar(
         "SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) FROM (
-           SELECT seq, ts, actor_kind, actor_id, action, entity, entity_id, ip::text AS ip, detail
-             FROM audit_log WHERE ($1::text IS NULL OR action LIKE $1 || '%') AND ($2::bigint IS NULL OR seq < $2)
-            ORDER BY seq DESC LIMIT $3) t",
+           SELECT l.seq, l.ts, l.actor_kind, l.actor_id, u.email AS actor_email, l.action, l.entity, l.entity_id, l.ip::text AS ip, l.detail
+             FROM audit_log l LEFT JOIN admin_users u ON u.id::text = l.actor_id
+            WHERE ($1::text IS NULL OR l.action LIKE $1 || '%') AND ($2::bigint IS NULL OR l.seq < $2) AND ($4::text IS NULL OR l.actor_id = $4)
+            ORDER BY l.seq DESC LIMIT $3) t",
     )
     .bind(action)
     .bind(before)
     .bind(limit.unwrap_or(100).clamp(1, 500))
+    .bind(actor)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -735,7 +792,7 @@ pub async fn audit_list(st: &AppState, tenant: &str, h: &HeaderMap, action: Opti
 }
 
 pub async fn audit_verify(st: &AppState, tenant: &str, h: &HeaderMap) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Activity).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let broken = json_of(&mut tx, &format!("SELECT bad_seq, problem FROM verify_audit_chain('{}')", a.tenant)).await?;
     let total: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log").fetch_one(&mut *tx).await?;
@@ -751,7 +808,7 @@ pub fn csv_field(s: &str) -> String {
 }
 
 pub async fn audit_csv(st: &AppState, tenant: &str, h: &HeaderMap, from_seq: Option<i64>) -> Result<Response> {
-    let a = authenticate(st, tenant, h, Role::Viewer).await?;
+    let a = authenticate(st, tenant, h, Perm::Activity).await?;
     let mut tx = tenant_tx(&st.pool, a.tenant).await?;
     let rows = sqlx::query(
         "SELECT seq, ts::text AS ts, actor_kind, COALESCE(actor_id,'') AS actor_id, action, COALESCE(entity,'') AS entity, COALESCE(entity_id,'') AS entity_id,
@@ -781,7 +838,7 @@ pub struct PaystackKey {
 
 /// Store the tenant's Paystack secret key, encrypted. Never returned again.
 pub async fn set_paystack_key(st: &AppState, tenant: &str, h: &HeaderMap, req: PaystackKey) -> Result<Value> {
-    let a = authenticate(st, tenant, h, Role::Owner).await?;
+    let a = authenticate(st, tenant, h, Perm::Secrets).await?;
     let s = req.secret.trim();
     if !(s.starts_with("sk_live_") || s.starts_with("sk_test_")) || s.len() < 20 || s.len() > 200 || !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(AppError::BadRequest("that does not look like a Paystack secret key (it starts with sk_live_ or sk_test_)".into()));
@@ -820,10 +877,68 @@ mod tests {
     }
 
     #[test]
-    fn roles_are_ordered() {
-        assert!(Role::Owner > Role::Operator && Role::Operator > Role::Viewer);
-        assert_eq!(role_from("owner"), Role::Owner);
-        assert_eq!(role_from("anything"), Role::Viewer);
+    fn permissions_follow_the_roles() {
+        use Perm::*;
+        // customer reps: complaints and manual sales, nothing financial or technical
+        for p in [Complaints, ManualSale, Customers, ErrorsView] {
+            assert!(allows(Role::CustomerRep, p));
+        }
+        for p in [SpecialVoucher, PlansWrite, Orders, RefundExecute, Users, Activity, Secrets, NodeTokens, Brand, Dashboard] {
+            assert!(!allows(Role::CustomerRep, p), "{p:?}");
+        }
+        // admins: special vouchers yes, staff management no
+        assert!(allows(Role::Admin, SpecialVoucher) && allows(Role::Admin, PlansWrite));
+        assert!(!allows(Role::Admin, Users) && !allows(Role::Admin, Activity) && !allows(Role::Admin, RefundExecute));
+        // ceo and system admin: everything except site-agent tokens for the CEO
+        for p in [Users, Activity, RefundExecute, SpecialVoucher, Brand, Secrets] {
+            assert!(allows(Role::Ceo, p) && allows(Role::SystemAdmin, p));
+        }
+        assert!(allows(Role::SystemAdmin, NodeTokens) && !allows(Role::Ceo, NodeTokens));
+        // every permission is granted to someone
+        for (p, _) in Perm::ALL {
+            assert!(allows(Role::SystemAdmin, *p) || allows(Role::Ceo, *p));
+        }
+    }
+
+    #[test]
+    fn who_manages_whom() {
+        assert!(Role::SystemAdmin.manages(Role::Ceo) && Role::SystemAdmin.manages(Role::SystemAdmin));
+        assert!(Role::Ceo.manages(Role::Admin) && Role::Ceo.manages(Role::CustomerRep));
+        assert!(!Role::Ceo.manages(Role::SystemAdmin) && !Role::Ceo.manages(Role::Ceo));
+        assert!(!Role::Admin.manages(Role::CustomerRep) && !Role::CustomerRep.manages(Role::CustomerRep));
+        assert_eq!(Role::parse("ceo"), Some(Role::Ceo));
+        assert_eq!(Role::parse("owner"), None);
+    }
+
+    fn plan(kind: &str) -> PlanIn {
+        serde_json::from_value(json!({ "name": "x", "kind": kind, "price_kobo": 100 })).unwrap()
+    }
+
+    #[test]
+    fn friendly_plan_fields_become_seconds() {
+        let mut p = plan("time");
+        p.duration = Some(crate::vouchers::Duration { unit: "hour".into(), count: 2 });
+        // two hours of use, usable for a day
+        assert_eq!(normalise_plan(&p).unwrap(), (Some(7200), Some(86_400)));
+        p.duration = Some(crate::vouchers::Duration { unit: "week".into(), count: 1 });
+        assert_eq!(normalise_plan(&p).unwrap(), (Some(604_800), Some(604_800)));
+        p.valid_for = Some(crate::vouchers::Duration { unit: "month".into(), count: 1 });
+        assert_eq!(normalise_plan(&p).unwrap().1, Some(30 * 86_400));
+        let mut d = plan("data");
+        d.valid_for = Some(crate::vouchers::Duration { unit: "day".into(), count: 3 });
+        d.duration = Some(crate::vouchers::Duration { unit: "hour".into(), count: 1 });
+        assert_eq!(normalise_plan(&d).unwrap(), (None, Some(3 * 86_400)), "a data plan has no time budget");
+        let mut e = plan("time");
+        e.active_seconds = Some(600);
+        e.valid_seconds = Some(1200);
+        assert_eq!(normalise_plan(&e).unwrap(), (Some(600), Some(1200)), "explicit seconds win");
+    }
+
+    #[test]
+    fn speeds_print_as_mbps() {
+        assert_eq!(trim_mbps(2000), "2");
+        assert_eq!(trim_mbps(1500), "1.5");
+        assert_eq!(DEFAULT_KBPS, 2000);
     }
 
     #[test]

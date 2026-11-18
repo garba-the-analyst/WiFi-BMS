@@ -29,6 +29,11 @@ pub trait Central: Send + Sync {
     async fn accounting(&self, req: &AccountingReq) -> Result<AccountingReply, CentralError>;
     /// Health numbers for the admin Network screen. Best effort.
     async fn metrics(&self, metrics: &[(String, f64)]) -> Result<(), CentralError>;
+    /// Problems seen at the site (router unreachable, disconnect failed ...), for the admin error log.
+    /// Best effort; the default does nothing so simple test doubles need not care.
+    async fn errors(&self, _events: &[crate::wire::ErrorEvent]) -> Result<(), CentralError> {
+        Ok(())
+    }
 }
 
 pub struct HttpCentral {
@@ -76,6 +81,11 @@ impl Central for HttpCentral {
     async fn metrics(&self, metrics: &[(String, f64)]) -> Result<(), CentralError> {
         let body = serde_json::json!({ "metrics": metrics.iter().map(|(m, v)| serde_json::json!({ "metric": m, "value": v })).collect::<Vec<_>>() });
         let _: serde_json::Value = self.post("/v1/node/metrics", &body).await?;
+        Ok(())
+    }
+
+    async fn errors(&self, events: &[crate::wire::ErrorEvent]) -> Result<(), CentralError> {
+        let _: serde_json::Value = self.post("/v1/node/errors", &serde_json::json!({ "events": events })).await?;
         Ok(())
     }
 }

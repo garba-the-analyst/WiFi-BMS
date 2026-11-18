@@ -34,7 +34,7 @@ pub fn harden(router: Router, origins: Vec<HeaderValue>) -> Router {
     let rid = HeaderName::from_static("x-request-id");
     let cors = CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
         .max_age(Duration::from_secs(600));
     let fixed = |name: &'static str, value: &'static str| SetResponseHeaderLayer::overriding(HeaderName::from_static(name), HeaderValue::from_static(value));

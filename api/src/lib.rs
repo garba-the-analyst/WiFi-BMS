@@ -19,13 +19,17 @@
 pub mod admin;
 pub mod auth;
 pub mod codes;
+pub mod complaints;
 pub mod db;
 pub mod entitlements_db;
+pub mod errapi;
+pub mod errlog;
 pub mod error;
 pub mod fingerprint;
 pub mod fulfil;
 pub mod harden;
 pub mod http;
+pub mod mail;
 pub mod member;
 pub mod orders;
 pub mod paystack;
@@ -33,8 +37,11 @@ pub mod radius;
 pub mod refunds;
 pub mod secrets;
 pub mod sms;
+pub mod staff;
+pub mod tenants;
 pub mod tether;
 pub mod totp;
+pub mod vouchers;
 
 use std::sync::Arc;
 
@@ -54,6 +61,8 @@ pub struct Config {
     pub fallback_email_domain: String,
     /// Believe `X-Forwarded-For`. Turn on ONLY when the API sits behind your own reverse proxy.
     pub trust_proxy: bool,
+    /// Staff must set up 2-step verification before they can use the back office. Leave on in production.
+    pub require_2fa: bool,
 }
 
 /// Shared by every request handler.
@@ -65,6 +74,7 @@ pub struct AppState {
     pub config: Config,
     pub limiter: Arc<auth::RateLimiter>,
     pub sms: Arc<dyn sms::SmsSender>,
+    pub mailer: Arc<dyn mail::Mailer>,
 }
 
 impl AppState {

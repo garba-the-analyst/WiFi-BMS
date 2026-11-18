@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::central::{Central, CentralError};
 use crate::control::{DeviceHints, RouterControl, SessionRef};
 use crate::spool::Spool;
+use crate::wire::ErrorEvent;
 use crate::wire::{AccountingReply, AccountingReq, AuthorizeReply, AuthorizeReq};
 
 /// The answer for FreeRADIUS's authorize step.
@@ -32,11 +33,59 @@ pub struct Agent {
     hints: Arc<dyn DeviceHints>,
     spool: Spool,
     sessions: Mutex<HashMap<String, Mem>>, // keyed by ticket username
+    /// Problems waiting to be sent to the central error log. Kept short; repeats of the same problem are merged.
+    problems: Mutex<Vec<(ErrorEvent, u32)>>,
 }
 
 impl Agent {
     pub fn new(central: Arc<dyn Central>, router: Arc<dyn RouterControl>, hints: Arc<dyn DeviceHints>, spool: Spool) -> Self {
-        Agent { central, router, hints, spool, sessions: Mutex::new(HashMap::new()) }
+        Agent { central, router, hints, spool, sessions: Mutex::new(HashMap::new()), problems: Mutex::new(Vec::new()) }
+    }
+
+    /// Note a problem. The same code seen again before it is sent only adds to a count, so a router that is
+    /// down for an hour produces one line with "x 120", not 120 lines.
+    pub fn report(&self, source: &'static str, severity: &'static str, code: &'static str, message: String, details: serde_json::Value) {
+        let mut p = self.problems.lock().expect("problems lock");
+        if let Some((_, n)) = p.iter_mut().find(|(e, _)| e.code == code && e.message == message) {
+            *n += 1;
+            return;
+        }
+        if p.len() >= 100 {
+            p.remove(0);
+        }
+        let mut details = details;
+        if let Some(o) = details.as_object_mut() {
+            o.insert("at".into(), serde_json::json!(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+        }
+        p.push((ErrorEvent { source, severity, code, message, details }, 1));
+    }
+
+    /// Send what has piled up. Anything that cannot be sent stays for the next round.
+    pub async fn flush_problems(&self) {
+        let batch: Vec<(ErrorEvent, u32)> = std::mem::take(&mut *self.problems.lock().expect("problems lock"));
+        if batch.is_empty() {
+            return;
+        }
+        let events: Vec<ErrorEvent> = batch
+            .iter()
+            .map(|(e, n)| {
+                let mut e = e.clone();
+                if *n > 1 {
+                    if let Some(o) = e.details.as_object_mut() {
+                        o.insert("times".into(), serde_json::json!(n));
+                    }
+                }
+                e
+            })
+            .collect();
+        if self.central.errors(&events).await.is_err() {
+            let mut p = self.problems.lock().expect("problems lock");
+            for item in batch.into_iter().rev() {
+                if p.len() < 100 {
+                    p.insert(0, item);
+                }
+            }
+        }
     }
 
     pub fn spool_depth(&self) -> usize {
@@ -61,6 +110,13 @@ impl Agent {
             Err(CentralError::Rejected(code)) => Decision::Reject(format!("platform refused ({code})")),
             Err(e) => {
                 tracing::warn!(error = %e, "authorize: platform unreachable");
+                self.report(
+                    "site_agent",
+                    "error",
+                    "site_agent.central_unreachable",
+                    format!("could not reach the central server: {e}"),
+                    serde_json::json!({ "during": "authorize" }),
+                );
                 Decision::Unavailable
             }
         }
@@ -79,9 +135,25 @@ impl Agent {
             Ok(reply) => self.apply(&req, &reply).await,
             Err(e) if e.is_retryable() => {
                 tracing::warn!(error = %e, status = %req.status, "accounting: platform unreachable, queued");
+                self.report(
+                    "site_agent",
+                    "warning",
+                    "site_agent.central_unreachable",
+                    format!("could not reach the central server: {e}"),
+                    serde_json::json!({ "during": "accounting", "queued": self.spool_depth() + 1 }),
+                );
                 self.enqueue(req);
             }
-            Err(e) => tracing::error!(error = %e, "accounting: platform rejected an update (dropped)"),
+            Err(e) => {
+                tracing::error!(error = %e, "accounting: platform rejected an update (dropped)");
+                self.report(
+                    "site_agent",
+                    "error",
+                    "site_agent.update_rejected",
+                    format!("the central server refused a usage update: {e}"),
+                    serde_json::json!({}),
+                );
+            }
         }
     }
 
@@ -89,6 +161,13 @@ impl Agent {
         if let Err(e) = self.spool.push(req) {
             // Out of disk or unwritable: the loudest thing we can do.
             tracing::error!(error = %e, "CANNOT WRITE THE OFFLINE QUEUE; usage will be lost");
+            self.report(
+                "site_agent",
+                "critical",
+                "site_agent.spool_full",
+                format!("cannot write the offline queue: {e}"),
+                serde_json::json!({ "queued": self.spool_depth() }),
+            );
         }
     }
 
@@ -119,6 +198,13 @@ impl Agent {
             tracing::info!(user = %req.username, reason = ?reply.reason, "disconnecting");
             if let Err(e) = self.router.disconnect(&session).await {
                 tracing::error!(error = %e, "router disconnect failed");
+                self.report(
+                    "radius",
+                    "error",
+                    "radius.coa_failed",
+                    format!("disconnect command failed: {e}"),
+                    serde_json::json!({ "user": req.username, "action": "disconnect" }),
+                );
             }
             self.sessions.lock().expect("sessions lock").remove(&req.username);
             return;
@@ -160,7 +246,16 @@ impl Agent {
                     mem.timeout = send_timeout;
                 }
             }
-            Err(e) => tracing::error!(error = %e, "router CoA failed; will retry on the next update"),
+            Err(e) => {
+                tracing::error!(error = %e, "router CoA failed; will retry on the next update");
+                self.report(
+                    "radius",
+                    "error",
+                    "radius.coa_failed",
+                    format!("limit change failed: {e}"),
+                    serde_json::json!({ "user": req.username, "action": "set_limits" }),
+                );
+            }
         }
     }
 

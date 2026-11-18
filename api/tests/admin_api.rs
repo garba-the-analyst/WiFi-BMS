@@ -12,7 +12,7 @@ use platform_api::error::{AppError, Result};
 use platform_api::http::router;
 use platform_api::paystack::{Gateway, InitializeRequest, InitializedTransaction, VerifiedTransaction};
 use platform_api::secrets::MasterKey;
-use platform_api::{totp, AppState, Config};
+use platform_api::{AppState, Config};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -62,9 +62,10 @@ async fn world() -> Option<World> {
         pool: app,
         gateway: Arc::new(NoGateway),
         master_key: MasterKey::from_hex(&"00".repeat(32)).unwrap(),
-        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false },
+        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false, require_2fa: false },
         limiter: Arc::new(RateLimiter::new()),
         sms: Arc::new(platform_api::sms::LogSms),
+        mailer: Arc::new(platform_api::mail::MemoryMailer::default()),
     };
     Some(World { admin, state, slug, tenant, site_id, profile })
 }
@@ -96,12 +97,12 @@ fn plan_body(w: &World, name: &str) -> Value {
 #[tokio::test]
 async fn signing_in_and_the_role_ladder() {
     let Some(w) = world().await else { return };
-    let owner = w.admin("owner@x.test", "owner").await;
-    let viewer = w.admin("viewer@x.test", "viewer").await;
-    let operator = w.admin("op@x.test", "operator").await;
+    let owner = w.admin("owner@x.test", "system_admin").await;
+    let viewer = w.admin("viewer@x.test", "customer_rep").await;
+    let operator = w.admin("op@x.test", "admin").await;
     assert_eq!(w.call("GET", "/overview", None, None).await.0, StatusCode::UNAUTHORIZED);
     assert_eq!(w.call("GET", "/overview", Some("mt_membertoken"), None).await.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(w.call("GET", "/overview?range=7d", Some(&viewer), None).await.0, StatusCode::OK);
+    assert_eq!(w.call("GET", "/overview?range=7d", Some(&viewer), None).await.0, StatusCode::FORBIDDEN, "reps do not see the dashboard");
     // viewer cannot write, operator can edit plans but not secrets or tokens, owner can do all.
     assert_eq!(w.call("POST", "/plans", Some(&viewer), Some(plan_body(&w, "P1"))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(w.call("POST", "/plans", Some(&operator), Some(plan_body(&w, "P1"))).await.0, StatusCode::OK);
@@ -122,7 +123,7 @@ async fn signing_in_and_the_role_ladder() {
 #[tokio::test]
 async fn wrong_passwords_lock_an_admin_and_an_unknown_email_looks_the_same() {
     let Some(w) = world().await else { return };
-    platform_api::admin::create_admin(&w.state, &w.slug, "lock@x.test", "correct horse 42", "owner").await.unwrap();
+    platform_api::admin::create_admin(&w.state, &w.slug, "lock@x.test", "correct horse 42", "system_admin").await.unwrap();
     for _ in 0..5 {
         let (s, _, _) = w.call("POST", "/login", None, Some(json!({ "email": "lock@x.test", "password": "nope nope 123" }))).await;
         assert_eq!(s, StatusCode::UNAUTHORIZED);
@@ -134,34 +135,9 @@ async fn wrong_passwords_lock_an_admin_and_an_unknown_email_looks_the_same() {
 }
 
 #[tokio::test]
-async fn two_step_verification_is_enforced_once_enrolled() {
-    let Some(w) = world().await else { return };
-    let token = w.admin("2fa@x.test", "owner").await;
-    let (s, setup, _) = w.call("POST", "/totp/setup", Some(&token), None).await;
-    assert_eq!(s, StatusCode::OK);
-    let secret = totp::base32_decode(setup["secret"].as_str().unwrap()).unwrap();
-    assert!(setup["otpauth_uri"].as_str().unwrap().starts_with("otpauth://totp/"));
-    let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-    // A wrong code does not enable it.
-    assert_eq!(w.call("POST", "/totp/confirm", Some(&token), Some(json!({ "code": "000000" }))).await.0, StatusCode::BAD_REQUEST);
-    let (s, _, _) = w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42" }))).await;
-    assert_eq!(s, StatusCode::OK, "not enabled yet, so no second step");
-    assert_eq!(w.call("POST", "/totp/confirm", Some(&token), Some(json!({ "code": totp::code_at(&secret, now(), 6) }))).await.0, StatusCode::OK);
-    // Now the password alone is not enough.
-    let (s, _, _) = w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42" }))).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED);
-    let (s, _, _) = w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42", "totp": "123456" }))).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED);
-    let (s, v, _) =
-        w.call("POST", "/login", None, Some(json!({ "email": "2fa@x.test", "password": "correct horse 42", "totp": totp::code_at(&secret, now(), 6) }))).await;
-    assert_eq!(s, StatusCode::OK, "{v}");
-    assert_eq!(v["totp_enrolled"], true);
-}
-
-#[tokio::test]
 async fn plans_are_validated_by_the_engine_and_edits_do_not_touch_sold_plans() {
     let Some(w) = world().await else { return };
-    let t = w.admin("plans@x.test", "operator").await;
+    let t = w.admin("plans@x.test", "admin").await;
     // A time plan with no time budget is refused (nothing is saved).
     let mut bad = plan_body(&w, "Broken");
     bad["active_seconds"] = Value::Null;
@@ -201,7 +177,7 @@ async fn plans_are_validated_by_the_engine_and_edits_do_not_touch_sold_plans() {
 #[tokio::test]
 async fn analytics_customers_and_network_reports_answer() {
     let Some(w) = world().await else { return };
-    let t = w.admin("rep@x.test", "viewer").await;
+    let t = w.admin("rep@x.test", "admin").await;
     let acct: Uuid = sqlx::query_scalar("INSERT INTO accounts (tenant_id, phone, display_name) VALUES ($1, '+2348022223333', 'Amina') RETURNING id")
         .bind(w.tenant)
         .fetch_one(&w.admin)
@@ -241,7 +217,7 @@ async fn analytics_customers_and_network_reports_answer() {
 #[tokio::test]
 async fn node_tokens_work_once_issued_and_stop_when_revoked_and_metrics_are_stored() {
     let Some(w) = world().await else { return };
-    let owner = w.admin("tok@x.test", "owner").await;
+    let owner = w.admin("tok@x.test", "system_admin").await;
     let (s, v, _) = w.call("POST", "/node-tokens", Some(&owner), Some(json!({ "site": "site-1", "name": "Site 1 PC" }))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     let token = v["token"].as_str().unwrap().to_string();
@@ -277,7 +253,7 @@ async fn node_tokens_work_once_issued_and_stop_when_revoked_and_metrics_are_stor
 #[tokio::test]
 async fn the_audit_trail_records_admin_actions_verifies_and_exports_safely() {
     let Some(w) = world().await else { return };
-    let owner = w.admin("aud@x.test", "owner").await;
+    let owner = w.admin("aud@x.test", "system_admin").await;
     w.call("POST", "/plans", Some(&owner), Some(plan_body(&w, "=cmd|' /C calc'!A0"))).await;
     let (_, entries, _) = w.call("GET", "/audit?action=plan.", Some(&owner), None).await;
     assert_eq!(entries[0]["action"], "plan.created");
@@ -301,7 +277,7 @@ async fn the_audit_trail_records_admin_actions_verifies_and_exports_safely() {
 #[tokio::test]
 async fn one_operators_admin_token_means_nothing_in_another_tenant() {
     let Some(w) = world().await else { return };
-    let t = w.admin("x@x.test", "owner").await;
+    let t = w.admin("x@x.test", "system_admin").await;
     let other_slug = format!("z-{}", &Uuid::new_v4().simple().to_string()[..8]);
     sqlx::query("INSERT INTO tenants (name, slug) VALUES ($1, $1)").bind(&other_slug).execute(&w.admin).await.unwrap();
     let req = Request::get(format!("/v1/t/{other_slug}/admin/overview")).header("authorization", format!("Bearer {t}")).body(Body::empty()).unwrap();

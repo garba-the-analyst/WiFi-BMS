@@ -87,9 +87,10 @@ async fn world() -> Option<World> {
         pool: app,
         gateway: Arc::new(FakeGateway(bank.clone())),
         master_key: key,
-        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false },
+        config: Config { public_base_url: "https://wifi.test".into(), fallback_email_domain: "guest.test".into(), trust_proxy: false, require_2fa: false },
         limiter: Arc::new(RateLimiter::new()),
         sms: Arc::new(platform_api::sms::LogSms),
+        mailer: Arc::new(platform_api::mail::MemoryMailer::default()),
     };
     Some(World { admin, state, bank, slug, tenant, plan_id })
 }
@@ -154,7 +155,7 @@ impl World {
 async fn customer_asks_owner_refunds_once_and_the_plan_stops_working() {
     let Some(w) = world().await else { return };
     let (reference, order) = w.guest_order(10000).await;
-    let owner = w.staff("o@x.test", "owner").await;
+    let owner = w.staff("o@x.test", "system_admin").await;
 
     let (s, v) = w.call("POST", &format!("/orders/{reference}/refund"), None, Some(json!({ "reason": "Router never let me in" }))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -183,13 +184,13 @@ async fn customer_asks_owner_refunds_once_and_the_plan_stops_working() {
 async fn only_owners_send_money_but_operators_can_decline() {
     let Some(w) = world().await else { return };
     let (reference, order) = w.guest_order(10000).await;
-    let operator = w.staff("op@x.test", "operator").await;
-    let viewer = w.staff("v@x.test", "viewer").await;
+    let operator = w.staff("op@x.test", "admin").await;
+    let viewer = w.staff("v@x.test", "customer_rep").await;
     w.call("POST", &format!("/orders/{reference}/refund"), None, Some(json!({ "reason": "changed my mind" }))).await;
     assert_eq!(w.call("POST", &format!("/admin/orders/{order}/refund"), Some(&operator), Some(json!({}))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(w.call("POST", &format!("/admin/orders/{order}/refund"), Some(&viewer), Some(json!({}))).await.0, StatusCode::FORBIDDEN);
     assert!(w.bank.refunds.lock().unwrap().is_empty());
-    let (_, q) = w.call("GET", "/admin/refunds?status=requested", Some(&viewer), None).await;
+    let (_, q) = w.call("GET", "/admin/refunds?status=requested", Some(&operator), None).await;
     let rid = q[0]["id"].as_str().unwrap().to_string();
     assert_eq!(w.call("POST", &format!("/admin/refunds/{rid}/decline"), Some(&viewer), Some(json!({ "note": "x" }))).await.0, StatusCode::FORBIDDEN);
     assert_eq!(w.call("POST", &format!("/admin/refunds/{rid}/decline"), Some(&operator), Some(json!({ "note": "plan was used" }))).await.0, StatusCode::OK);
@@ -201,7 +202,7 @@ async fn only_owners_send_money_but_operators_can_decline() {
 async fn when_paystack_refuses_nothing_changes_and_a_retry_works() {
     let Some(w) = world().await else { return };
     let (_, order) = w.guest_order(10000).await;
-    let owner = w.staff("o2@x.test", "owner").await;
+    let owner = w.staff("o2@x.test", "system_admin").await;
     *w.bank.fail.lock().unwrap() = true;
     let (s, _) = w.call("POST", &format!("/admin/orders/{order}/refund"), Some(&owner), Some(json!({}))).await;
     assert_eq!(s, StatusCode::BAD_GATEWAY);
@@ -221,7 +222,7 @@ async fn when_paystack_refuses_nothing_changes_and_a_retry_works() {
 async fn simultaneous_clicks_refund_exactly_once() {
     let Some(w) = world().await else { return };
     let (_, order) = w.guest_order(10000).await;
-    let owner = w.staff("o3@x.test", "owner").await;
+    let owner = w.staff("o3@x.test", "system_admin").await;
     let mut hs = Vec::new();
     for _ in 0..6 {
         let (st, slug, t) = (w.state.clone(), w.slug.clone(), owner.clone());
@@ -258,7 +259,7 @@ async fn a_plan_bought_from_the_wallet_is_refunded_to_the_wallet() {
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(w.balance(acct).await, 0);
     let order: Uuid = sqlx::query_scalar("SELECT id FROM orders WHERE account_id = $1").bind(acct).fetch_one(&w.admin).await.unwrap();
-    let owner = w.staff("o4@x.test", "owner").await;
+    let owner = w.staff("o4@x.test", "system_admin").await;
     let (s, v) = w.call("POST", &format!("/admin/orders/{order}/refund"), Some(&owner), Some(json!({}))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["method"], "wallet");
@@ -291,7 +292,7 @@ async fn a_topup_refund_needs_the_money_to_still_be_there() {
         assert_eq!(w.call("GET", &format!("/orders/{reference}"), None, None).await.1["plan"], "Wallet top-up");
     }
     assert_eq!(w.balance(acct).await, 40000);
-    let owner = w.staff("o5@x.test", "owner").await;
+    let owner = w.staff("o5@x.test", "system_admin").await;
     let (s, _) = w.call("POST", &format!("/admin/orders/{}/refund", orders[0]), Some(&owner), Some(json!({}))).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(w.balance(acct).await, 20000, "the refunded top-up is taken back from the wallet");
@@ -313,7 +314,7 @@ async fn a_payment_of_the_wrong_amount_is_refunded_for_what_was_paid() {
     let Some(w) = world().await else { return };
     let (reference, order) = w.guest_order(5000).await; // plan costs 10000
     assert_eq!(w.status_of(order).await, "refund_flagged");
-    let owner = w.staff("o6@x.test", "owner").await;
+    let owner = w.staff("o6@x.test", "system_admin").await;
     let (_, orders) = w.call("GET", "/admin/orders?status=refund_flagged", Some(&owner), None).await;
     assert_eq!(orders[0]["reference"], reference.as_str());
     let (s, v) = w.call("POST", &format!("/admin/orders/{order}/refund"), Some(&owner), Some(json!({}))).await;
@@ -334,7 +335,7 @@ async fn unpaid_and_foreign_orders_cannot_be_refunded() {
     // Another tenant's owner cannot touch this tenant's order.
     let other = format!("r2-{}", &Uuid::new_v4().simple().to_string()[..8]);
     sqlx::query("INSERT INTO tenants (name, slug) VALUES ($1, $1)").bind(&other).execute(&w.admin).await.unwrap();
-    platform_api::admin::create_admin(&w.state, &other, "x@o.test", "correct horse 42", "owner").await.unwrap();
+    platform_api::admin::create_admin(&w.state, &other, "x@o.test", "correct horse 42", "system_admin").await.unwrap();
     let login = Request::post(format!("/v1/t/{other}/admin/login"))
         .header("content-type", "application/json")
         .body(Body::from(json!({ "email": "x@o.test", "password": "correct horse 42" }).to_string()))
