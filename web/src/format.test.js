@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { naira, bytes, duration, plausiblePhone, safeHotspotLink } from './format'
+import { naira, bytes, duration, plausiblePhone, safeHotspotLink, mixHex, isHexColour, planSummary, ago, roleLabel } from './format'
 
 describe('format', () => {
   it('shows naira from kobo', () => {
@@ -42,5 +42,31 @@ describe('safeHotspotLink', () => {
   })
   it('allows hosts the operator lists', () => {
     expect(safeHotspotLink('http://login.wifi.example/login', ['login.wifi.example'])).toBeTruthy()
+  })
+})
+
+describe('brand colour', () => {
+  it('validates and mixes hex colours', () => {
+    expect(isHexColour('#0F766E')).toBe(true)
+    expect(isHexColour('red')).toBe(false)
+    expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
+    expect(mixHex('#0F766E', '#0F766E', 0.7)).toBe('#0f766e')
+  })
+})
+
+describe('plan and staff wording', () => {
+  it('summarises time, data, devices and speed', () => {
+    expect(planSummary({ active_seconds: 86400, data_bytes: null, device_limit: 1, down_kbps: 2000, up_kbps: 2000 })).toBe('1 day of use · 1 device · 2 Mbps down / 2 Mbps up')
+    expect(planSummary({ active_seconds: null, data_bytes: 5 * 1024 ** 3, device_limit: 3, down_kbps: 5000, up_kbps: 1000 })).toBe('5.0 GB · 3 devices · 5 Mbps down / 1 Mbps up')
+  })
+  it('says how long ago', () => {
+    const now = Date.parse('2026-11-18T12:00:00Z')
+    expect(ago('2026-11-18T11:59:30Z', now)).toBe('just now')
+    expect(ago('2026-11-18T11:30:00Z', now)).toBe('30 min ago')
+    expect(ago('2026-11-16T12:00:00Z', now)).toBe('2 d ago')
+  })
+  it('names roles', () => {
+    expect(roleLabel('customer_rep')).toBe('Customer rep')
+    expect(roleLabel('weird')).toBe('weird')
   })
 })

@@ -4,7 +4,7 @@
 | Boundary | Credential | Notes |
 |---|---|---|
 | Customer → API | access code / `mt_` token | codes are 8 chars from a 32-letter alphabet; guessing is rate limited per IP and per code |
-| Admin → API | password + TOTP → `at_` token (12 h) | 5 failures lock 15 min; roles viewer < operator < owner |
+| Staff → API | password, then a 6-digit code (authenticator app, email or SMS) → `at_` token (12 h) | 5 wrong passwords or codes lock 15 min; codes last 10 min, are stored hashed and die after 5 tries; roles system_admin, ceo, admin, customer_rep (one permission table in `api/src/admin.rs`) |
 | Site agent → API | `nt_` token (one per site, revocable) | the only credential that crosses the internet from a site |
 | FreeRADIUS → agent | `X-Agent-Key` on loopback | agent refuses non-loopback `LISTEN` |
 | Paystack → API | HMAC-SHA512 signature | plus a server-side Verify Transaction call |
@@ -24,6 +24,12 @@ orders, payments, wallet ledger, admin actions. Raw card data never touches us (
 - **NCC:** any lawful-intercept or traffic-log retention duty for ISPs.
 - Decide a retention period for `sessions`, `audit_log` and `consents`, and add a scheduled job; the schema keeps them indefinitely today.
 - The consent text (`TERMS_VERSION` in `api/src/radius.rs`) is a placeholder version label. The terms themselves are yours to write.
+
+## Staff roles and accountability
+- Every action by staff is written to the hash-chained audit log with who did it; system admins and the CEO can filter it by person.
+- Managers can only manage roles below them; the last active system admin can never be removed, demoted or suspended.
+- Special (unlimited) vouchers need a reason, are limited to admin and above, and every code records who made it. Customer reps cannot see them.
+- Removing a staff account signs them out at once and keeps their history.
 
 ## Known limits
 Tether detection is heuristic; MAC randomisation; in-memory rate limiter; TOTP not single-use.

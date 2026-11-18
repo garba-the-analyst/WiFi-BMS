@@ -30,7 +30,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plan { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .plan .price { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 18px; }
 .plan.picked { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
-.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--soft); color: var(--muted); }
+.chip { display: inline-block; white-space: nowrap; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--soft); color: var(--muted); }
 .chip.ok { background: var(--ok-bg); color: var(--ok); } .chip.warn { background: var(--warn-bg); color: var(--warn); } .chip.bad { background: var(--bad-bg); color: var(--bad); }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--brand); background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; text-decoration: none; }

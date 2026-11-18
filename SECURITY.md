@@ -18,7 +18,7 @@ See `docs/security-model.md` for the full model. Highlights:
 
 ## Operator checklist
 1. Keep `PLATFORM_MASTER_KEY` backed up offline; losing it makes stored Paystack keys unreadable. Rotating it needs a re-encrypt.
-2. Enrol 2-step verification for every admin; owners especially.
+2. Every staff account must use 2-step verification (the app enforces it). Keep the number of system admins small.
 3. Set `TRUST_PROXY=1` **only** behind your own reverse proxy (the compose file does this); otherwise client IPs cannot be trusted.
 4. Use `sk_live_` keys only after a full test-mode run. Restrict the Paystack dashboard IP allow-list/webhook URL.
 5. Never expose PostgreSQL or the site agent's port (it binds to loopback by design).

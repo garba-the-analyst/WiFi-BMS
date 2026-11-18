@@ -59,12 +59,13 @@ cp .env.example .env              # fill in values; PLATFORM_MASTER_KEY = openss
 docker compose up -d db
 docker compose --profile tools run --rm migrate
 docker compose up -d --build api caddy   # edit deploy/config.json first (tenant, site, brand)
-ADMIN_PASSWORD='...' docker compose run --rm api create-admin <tenant-slug> you@example.com owner
+docker compose run --rm api create-tenant <tenant-slug> "Business name" site-1 "Main site"
+ADMIN_PASSWORD='...' docker compose run --rm -e ADMIN_PASSWORD api create-admin <tenant-slug> you@example.com system_admin
 ```
 
 ## Honest status
 
-Done and tested against a real PostgreSQL: money path, RADIUS link, member sign-in and wallet, admin API, refunds, hardening. The web app was driven in a real browser against the live API (portal, member sign-up, wallet purchase, refund request, owner refund, every admin page). Not yet verified: Caddy/Cloudflare on the real VPS, and real router hardware.
+Done and tested against a real PostgreSQL: money path, RADIUS link, member sign-in and wallet, admin API, refunds, hardening. The web app was driven in a real browser against the live API (portal, member sign-up, wallet purchase, refund request, refund, every admin page). Also built and tested: staff roles (system admin, CEO, admin, customer rep), 2-step verification (app, email, SMS), customisable time/data plans (default 2 Mbps), manual and special vouchers, complaints, an error log that captures API, database, payment, SMS, email, web app, hardware and site agent errors, and per-business branding. Not yet verified: Caddy/Cloudflare on the real VPS, real router hardware, and a live SMS provider. Not built yet: the live device page (APs and CPE radios with health, signal and connected clients).
 
 **Not done yet / needs your attention before launch**
 - **Real hardware validation.** The FreeRADIUS `rlm_rest` JSON shape, `radclient` CoA/Disconnect and the RouterOS

@@ -5,12 +5,26 @@ export const config = () => cfg
 export async function loadConfig() {
   const r = await fetch('/config.json', { cache: 'no-store' })
   cfg = { ...cfg, ...(await r.json()) }
+  // The establishment's own settings (name, colour, support phone, sites) live on the server, so one build
+  // of this app can serve any business. They win over the static file, which only has to name the tenant.
+  try {
+    const b = await fetch(`/v1/t/${cfg.tenant}/brand`, { cache: 'no-store' })
+    if (b.ok) {
+      const v = await b.json()
+      cfg = {
+        ...cfg,
+        brand: v.brand || cfg.brand, tagline: v.tagline || '', primary: v.primary || '',
+        supportPhone: v.supportPhone || cfg.supportPhone || '',
+        hotspotHosts: [...new Set([...(cfg.hotspotHosts || []), ...(v.hotspotHosts || [])])], sites: v.sites || [],
+      }
+    }
+  } catch { /* the static file is enough to start */ }
   document.title = cfg.brand
   return cfg
 }
 
 export class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status }
+  constructor(status, message, code) { super(message); this.status = status; this.code = code }
 }
 
 const store = (kind) => ({
@@ -22,6 +36,8 @@ export const memberToken = store('member')
 export const adminToken = store('admin')
 
 let onAdminExpired = () => {}
+let onMfaRequired = null
+export const setMfaRequiredHandler = (fn) => { onMfaRequired = fn }
 export const setAdminExpiredHandler = (fn) => { onAdminExpired = fn }
 
 async function call(method, path, { body, token, expired } = {}) {
@@ -40,7 +56,8 @@ async function call(method, path, { body, token, expired } = {}) {
   if (!res.ok) {
     if (res.status === 401 && expired) expired()
     const fallback = { 401: 'Please sign in.', 403: 'You do not have permission to do that.', 429: 'Too many tries. Please wait a few minutes.', 404: 'Not found.' }[res.status] || 'Something went wrong. Please try again.'
-    throw new ApiError(res.status, (data && data.error) || fallback)
+    if (res.status === 403 && data && data.code === 'mfa_required' && onMfaRequired) onMfaRequired()
+    throw new ApiError(res.status, (data && data.error) || fallback, data && data.code)
   }
   return data
 }
@@ -54,6 +71,7 @@ export const portal = {
   orderStatus: (ref) => call('GET', `${t()}/orders/${encodeURIComponent(ref)}`),
   connect: (body) => call('POST', `${t()}/connect`, { body }),
   refundRequest: (ref, reason) => call('POST', `${t()}/orders/${encodeURIComponent(ref)}/refund`, { body: { reason } }),
+  complain: (body) => call('POST', `${t()}/complaints`, { body }),
   refundStatus: (ref) => call('GET', `${t()}/orders/${encodeURIComponent(ref)}/refund`),
 }
 
@@ -83,10 +101,34 @@ const qs = (o) => {
   return s ? '?' + s : ''
 }
 export const admin = {
+  // Sign in is two steps: password, then a code. A first-time account gets a limited token and must enrol.
   login: (b) => call('POST', `${t()}/admin/login`, { body: b }),
+  loginVerify: (challenge, code) => call('POST', `${t()}/admin/login/verify`, { body: { challenge, code } }),
   logout: () => a('POST', '/logout'),
-  totpSetup: () => a('POST', '/totp/setup'),
-  totpConfirm: (code) => a('POST', '/totp/confirm', { code }),
+  me: () => a('GET', '/me'),
+  mfaStart: (method, phone) => a('POST', '/2fa/start', { method, phone: phone || undefined }),
+  mfaConfirm: (challenge, code) => a('POST', '/2fa/confirm', { challenge, code }),
+  changePassword: (current, next) => a('PUT', '/password', { current, new: next }),
+  users: (all) => a('GET', '/users' + qs({ status: all ? 'all' : '' })),
+  createUser: (b) => a('POST', '/users', b),
+  updateUser: (id, b) => a('PUT', `/users/${id}`, b),
+  deleteUser: (id) => a('DELETE', `/users/${id}`),
+  resetPassword: (id, password) => a('POST', `/users/${id}/reset-password`, { password }),
+  resetMfa: (id) => a('POST', `/users/${id}/reset-2fa`),
+  userActivity: (id, o) => a('GET', `/users/${id}/activity` + qs(o)),
+  vouchers: (o) => a('GET', '/vouchers' + qs(o)),
+  manualSale: (b) => a('POST', '/vouchers/manual', b),
+  specialVoucher: (b) => a('POST', '/vouchers/special', b),
+  revokeVoucher: (id) => a('POST', `/vouchers/${id}/revoke`),
+  complaints: (o) => a('GET', '/complaints' + qs(o)),
+  complaint: (id) => a('GET', `/complaints/${id}`),
+  updateComplaint: (id, b) => a('PUT', `/complaints/${id}`, b),
+  addNote: (id, body) => a('POST', `/complaints/${id}/notes`, { body }),
+  errors: (o) => a('GET', '/errors' + qs(o)),
+  errorSummary: () => a('GET', '/errors/summary'),
+  error: (id) => a('GET', `/errors/${id}`),
+  resolveError: (id, all_same) => a('POST', `/errors/${id}/resolve`, { all_same }),
+  saveBrand: (b) => a('PUT', '/brand', b),
   overview: (range) => a('GET', '/overview' + qs({ range })),
   analytics: (what, range) => a('GET', `/analytics/${what}` + qs({ range })),
   customers: (o) => a('GET', '/customers' + qs(o)),
@@ -113,6 +155,13 @@ export const admin = {
     if (!r.ok) throw new ApiError(r.status, 'Could not export the audit log.')
     const url = URL.createObjectURL(await r.blob())
     const el = Object.assign(document.createElement('a'), { href: url, download: 'audit.csv' })
+    document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url)
+  },
+  async downloadErrors(o) {
+    const r = await fetch(`${t()}/admin/errors.csv` + qs(o), { headers: { authorization: 'Bearer ' + adminToken.get() } })
+    if (!r.ok) throw new ApiError(r.status, 'Could not export the error log.')
+    const url = URL.createObjectURL(await r.blob())
+    const el = Object.assign(document.createElement('a'), { href: url, download: 'errors.csv' })
     document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url)
   },
   setPaystackKey: (secret) => a('PUT', '/secrets/paystack', { secret }),

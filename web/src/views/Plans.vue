@@ -43,6 +43,7 @@
       <button class="btn block" :disabled="paying">{{ paying ? 'Opening checkout…' : 'Pay ' + naira(picked.price_kobo) }}</button>
       <p class="muted small" style="margin:0;text-align:center">Secure payment by Paystack. Card, bank transfer or USSD.</p>
     </form>
+    <p class="muted small" style="margin-top:20px;text-align:center">Something wrong? <router-link to="/help">Report a problem</router-link></p>
   </div>
 </template>
 

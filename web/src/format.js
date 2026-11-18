@@ -66,3 +66,36 @@ export function safeHotspotLink(link, extraHosts = []) {
   if (h.endsWith('.lan') || h.endsWith('.local') || extraHosts.map((x) => x.toLowerCase()).includes(h)) return u.toString()
   return null
 }
+
+/** Staff roles in plain words. */
+export const ROLE_LABELS = { system_admin: 'System admin', ceo: 'CEO', admin: 'Admin', customer_rep: 'Customer rep' }
+export const roleLabel = (r) => ROLE_LABELS[r] || r
+
+/** Mix two #rrggbb colours: t=0 gives a, t=1 gives b. Used to derive hover and dark-mode shades from one brand colour. */
+export function mixHex(a, b, t) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+  const [x, y] = [p(a), p(b)]
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('')
+}
+export const isHexColour = (c) => /^#[0-9a-fA-F]{6}$/.test(String(c || ''))
+
+/** Plan allowance as a sentence: "5 GB · 2 devices · 2 Mbps" style pieces, for admin tables. */
+export function planSummary(p) {
+  const bits = []
+  if (p.active_seconds) bits.push(duration(p.active_seconds) + ' of use')
+  if (p.data_bytes) bits.push(bytes(p.data_bytes))
+  bits.push(`${p.device_limit} device${p.device_limit === 1 ? '' : 's'}`)
+  bits.push(`${speed(p.down_kbps)} down / ${speed(p.up_kbps)} up`)
+  return bits.join(' · ')
+}
+
+/** Plain-language time from an ISO string: "3 min ago". */
+export function ago(v, now = Date.now()) {
+  const d = new Date(v)
+  if (isNaN(d)) return '–'
+  const s = Math.max(0, Math.round((now - d.getTime()) / 1000))
+  if (s < 60) return 'just now'
+  if (s < 3600) return Math.round(s / 60) + ' min ago'
+  if (s < 86400) return Math.round(s / 3600) + ' h ago'
+  return Math.round(s / 86400) + ' d ago'
+}

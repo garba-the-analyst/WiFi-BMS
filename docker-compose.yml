@@ -39,6 +39,10 @@ services:
       FALLBACK_EMAIL_DOMAIN: ${PUBLIC_HOST}
       CORS_ORIGINS: https://${PUBLIC_HOST}
       TRUST_PROXY: "1"
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      TERMII_API_KEY: ${TERMII_API_KEY:-}
+      TERMII_SENDER_ID: ${TERMII_SENDER_ID:-}
       RUST_LOG: info
     expose: ["8080"]
 
