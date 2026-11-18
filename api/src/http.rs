@@ -24,6 +24,7 @@ use crate::member;
 use crate::orders::{create_order, order_status, CreateOrder, CreatedOrder, OrderStatus};
 use crate::paystack::{signature_is_valid, WebhookEvent};
 use crate::radius::{self, AccountingReply, AccountingRequest, AuthorizeReply, AuthorizeRequest, ConnectRequest, Ticket};
+use crate::refunds;
 use crate::AppState;
 
 pub fn router(state: AppState) -> Router {
@@ -68,6 +69,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/admin/audit.csv", get(a_audit_csv))
         .route("/v1/t/:tenant/admin/secrets/paystack", axum::routing::put(a_paystack_key))
         .route("/v1/node/metrics", post(node_metrics))
+        .route("/v1/t/:tenant/orders/:reference/refund", get(refund_status).post(refund_request))
+        .route("/v1/t/:tenant/admin/orders", get(a_orders))
+        .route("/v1/t/:tenant/admin/orders/:id/refund", post(a_refund_execute))
+        .route("/v1/t/:tenant/admin/refunds", get(a_refunds))
+        .route("/v1/t/:tenant/admin/refunds/:id/decline", post(a_refund_decline))
         .route("/v1/node/radius/authorize", post(node_authorize))
         .route("/v1/node/radius/accounting", post(node_accounting))
         // Webhook and order bodies are small. Refuse anything large before reading it.
@@ -235,6 +241,7 @@ struct Q {
     action: Option<String>,
     before: Option<i64>,
     from: Option<i64>,
+    status: Option<String>,
 }
 
 async fn a_login(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Json(b): Json<admin::Login>) -> J {
@@ -309,4 +316,25 @@ async fn a_paystack_key(State(st): State<AppState>, Path(t): Tenant, h: HeaderMa
 }
 async fn node_metrics(State(st): State<AppState>, h: HeaderMap, Json(b): Json<admin::MetricsIn>) -> J {
     Ok(Json(admin::node_metrics(&st, &h, b).await?))
+}
+
+// ---- Refunds ---------------------------------------------------------------
+
+async fn refund_request(State(st): State<AppState>, Path((t, r)): Path<(String, String)>, h: HeaderMap, Json(b): Json<refunds::RefundAsk>) -> J {
+    Ok(Json(refunds::request(&st, &t, &h, &r, b).await?))
+}
+async fn refund_status(State(st): State<AppState>, Path((t, r)): Path<(String, String)>) -> J {
+    Ok(Json(refunds::request_status(&st, &t, &r).await?))
+}
+async fn a_orders(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(refunds::list_orders(&st, &t, &h, q.q.as_deref(), q.status.as_deref(), q.limit, q.offset).await?))
+}
+async fn a_refunds(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(refunds::list(&st, &t, &h, q.status.as_deref()).await?))
+}
+async fn a_refund_execute(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<refunds::Decision>) -> J {
+    Ok(Json(refunds::execute(&st, &t, &h, id, b).await?))
+}
+async fn a_refund_decline(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<refunds::Decision>) -> J {
+    Ok(Json(refunds::decline(&st, &t, &h, id, b).await?))
 }

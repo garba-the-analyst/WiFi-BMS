@@ -5,3 +5,5 @@ target/
 !.env.example
 *.pem
 *.key
+node_modules/
+web/dist/

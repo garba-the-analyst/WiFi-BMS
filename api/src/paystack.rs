@@ -100,6 +100,17 @@ pub struct InitializeRequest<'a> {
 pub trait Gateway: Send + Sync {
     async fn initialize(&self, req: InitializeRequest<'_>) -> Result<InitializedTransaction>;
     async fn verify(&self, secret: &str, reference: &str) -> Result<VerifiedTransaction>;
+    /// Return money to the customer's original payment method.
+    async fn refund(&self, _secret: &str, _reference: &str, _amount_kobo: i64, _note: &str) -> Result<RefundResult> {
+        Err(gw("this gateway cannot refund"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefundResult {
+    pub provider_ref: String,
+    /// Paystack's own word: usually `pending` or `processed`.
+    pub status: String,
 }
 
 /// The real thing: talks to api.paystack.co.
@@ -153,6 +164,22 @@ impl Gateway for PaystackHttp {
         }
         let url = v["data"]["authorization_url"].as_str().ok_or_else(|| gw("no authorization_url"))?;
         Ok(InitializedTransaction { authorization_url: url.to_string(), reference: req.reference.to_string() })
+    }
+
+    async fn refund(&self, secret: &str, reference: &str, amount_kobo: i64, note: &str) -> Result<RefundResult> {
+        let body = serde_json::json!({ "transaction": reference, "amount": amount_kobo, "currency": "NGN", "merchant_note": note });
+        let resp = self.client.post(format!("{}/refund", self.base)).bearer_auth(secret).json(&body).send().await.map_err(gw)?;
+        let status = resp.status();
+        let v: serde_json::Value = resp.json().await.map_err(gw)?;
+        if !status.is_success() || v["status"] != true {
+            return Err(gw(format!("refund rejected ({status}): {}", v["message"])));
+        }
+        let id = match &v["data"]["id"] {
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => s.clone(),
+            _ => reference.to_string(),
+        };
+        Ok(RefundResult { provider_ref: id, status: v["data"]["status"].as_str().unwrap_or("pending").to_string() })
     }
 
     async fn verify(&self, secret: &str, reference: &str) -> Result<VerifiedTransaction> {

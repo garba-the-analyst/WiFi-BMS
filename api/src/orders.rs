@@ -116,7 +116,7 @@ pub async fn create_order(state: &AppState, tenant_slug: &str, req: CreateOrder)
     // 2. Open the payment with Paystack. No database transaction is held open
     //    during this network call.
     let email = payer_email(req.email.as_deref(), &phone, &state.config.fallback_email_domain);
-    let callback = format!("{}/t/{}/paid?ref={}", state.config.public_base_url, tenant_slug, reference);
+    let callback = format!("{}/order/{}", state.config.public_base_url, reference);
     let init = state
         .gateway
         .initialize(InitializeRequest {
@@ -169,9 +169,9 @@ pub async fn order_status(state: &AppState, tenant_slug: &str, reference: &str) 
     let tenant = tenant_id_by_slug(&state.pool, tenant_slug).await?;
     let mut tx = tenant_tx(&state.pool, tenant).await?;
     let row = sqlx::query(
-        "SELECT o.status::text AS status, p.name AS plan, c.code AS code
+        "SELECT o.status::text AS status, COALESCE(p.name, 'Wallet top-up') AS plan, c.code AS code
            FROM orders o
-           JOIN plans p ON p.id = o.plan_id
+           LEFT JOIN plans p ON p.id = o.plan_id
            LEFT JOIN access_codes c ON c.id = o.access_code_id
           WHERE o.reference = $1",
     )

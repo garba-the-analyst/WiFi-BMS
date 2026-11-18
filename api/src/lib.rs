@@ -30,6 +30,7 @@ pub mod member;
 pub mod orders;
 pub mod paystack;
 pub mod radius;
+pub mod refunds;
 pub mod secrets;
 pub mod sms;
 pub mod tether;

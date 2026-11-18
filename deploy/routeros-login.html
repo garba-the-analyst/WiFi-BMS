@@ -1,0 +1,16 @@
+<!-- Upload as hotspot/login.html on EACH site's router (Files > hotspot), replacing the default.
+     Change site=site-1 per site. Sends the customer to the portal with what it needs to log them in.
+     Validate $(variables) on the real router: names can differ between RouterOS versions. -->
+<html>
+<head><meta charset="utf-8"><title>Wi-Fi</title></head>
+<body>
+<noscript><p><a href="https://wifi.waste2light.com/">Continue to the Wi-Fi portal</a></p></noscript>
+<script>
+  var q = '?site=site-1' +
+    '&mac=' + encodeURIComponent('$(mac)') +
+    '&link=' + encodeURIComponent('$(link-login-only)') +
+    '&dst=' + encodeURIComponent('$(link-orig)');
+  location.replace('https://wifi.waste2light.com/' + q);
+</script>
+</body>
+</html>

@@ -40,4 +40,4 @@ fi
 export ADMIN_DATABASE_URL="postgres://$ADMIN_USER@$AUTH_HOST:$PORT/$DB?sslmode=disable$SOCK"
 export DATABASE_URL="postgres://app_test:app_test@$AUTH_HOST:$PORT/$DB?sslmode=disable$SOCK"
 cd "$HERE"
-cargo test --test money_path --test radius_link --test members --test admin_api -- --test-threads=4 "$@"
+cargo test --test money_path --test radius_link --test members --test admin_api --test refunds -- --test-threads=4 "$@"

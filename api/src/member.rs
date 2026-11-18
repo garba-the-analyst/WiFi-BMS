@@ -431,7 +431,7 @@ pub async fn topup(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: T
     tx.commit().await?;
 
     let em = payer_email(email.as_deref(), &phone, &st.config.fallback_email_domain);
-    let callback = format!("{}/t/{}/wallet?ref={}", st.config.public_base_url, tenant_slug, reference);
+    let callback = format!("{}/member/wallet?ref={}", st.config.public_base_url, reference);
     let init = st
         .gateway
         .initialize(InitializeRequest {

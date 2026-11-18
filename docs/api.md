@@ -12,6 +12,7 @@ Bearer tokens go in `Authorization: Bearer <token>`. `:tenant` is the operator's
 | GET | `/v1/t/:tenant/orders/:reference` | poll status; shows the access code once provisioned |
 | POST | `/v1/t/:tenant/webhooks/paystack` | Paystack only (signature checked) |
 | POST | `/v1/t/:tenant/connect` | `{site, mac, code, accept_terms}` → one-time ticket |
+| GET/POST | `/v1/t/:tenant/orders/:reference/refund` | customer refund request `{reason?}` (the unguessable reference is the proof; 14-day window; rate limited) / its status |
 
 ## Members (`mt_` token from register/login)
 `POST /members/register|login|logout|otp/request|otp/verify|claim|connect|wallet/topup|wallet/buy|devices/swap`,
@@ -29,6 +30,9 @@ Bearer tokens go in `Authorization: Bearer <token>`. `:tenant` is the operator's
 | POST/PUT | `/admin/plans`, `/admin/plans/:id`, `/admin/plans/:id/active`, `/admin/speed-profiles` | operator |
 | POST | `/admin/node-tokens`, `/admin/node-tokens/:id/revoke` | owner |
 | PUT | `/admin/secrets/paystack` | owner |
+| GET | `/admin/orders?q=&status=`, `/admin/refunds` | viewer |
+| POST | `/admin/refunds/:id/decline` | operator |
+| POST | `/admin/orders/:id/refund` | owner. One transaction under the order lock: Paystack refund (rolls back if Paystack refuses), or wallet credit; a top-up needs the balance still present; the plan is cancelled |
 
 ## Site agent (`nt_` token)
 `POST /v1/node/radius/authorize`, `POST /v1/node/radius/accounting`, `POST /v1/node/metrics`.

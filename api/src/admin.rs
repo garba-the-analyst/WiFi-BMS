@@ -103,7 +103,7 @@ pub struct Login {
 }
 
 enum Outcome {
-    Ok(Uuid, bool),
+    Ok(Uuid, bool, String),
     Bad,
     Locked,
 }
@@ -119,7 +119,7 @@ pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: L
     let tenant = tenant_id_by_slug(&st.pool, tenant_slug).await?;
     let mut tx = tenant_tx(&st.pool, tenant).await?;
     let row = sqlx::query(
-        "SELECT id, password_hash, totp_secret, totp_enabled, status::text AS status,
+        "SELECT id, password_hash, totp_secret, totp_enabled, status::text AS status, role::text AS role,
                 (locked_until IS NOT NULL AND locked_until > now()) AS locked
            FROM admin_users WHERE lower(email) = $1 FOR UPDATE",
     )
@@ -145,7 +145,7 @@ pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: L
                     .bind(id)
                     .execute(&mut *tx)
                     .await?;
-                Outcome::Ok(id, enabled)
+                Outcome::Ok(id, enabled, r.try_get("role")?)
             } else {
                 sqlx::query(
                     "UPDATE admin_users SET failed_logins = CASE WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
@@ -163,7 +163,7 @@ pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: L
         }
     };
     match outcome {
-        Outcome::Ok(id, enrolled) => {
+        Outcome::Ok(id, enrolled, role) => {
             let token = new_token("at");
             sqlx::query(
                 "INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, expires_at, ip, user_agent)
@@ -179,7 +179,7 @@ pub async fn login(st: &AppState, tenant_slug: &str, headers: &HeaderMap, req: L
             .await?;
             audit(&mut tx, tenant, "admin", Some(&id.to_string()), "admin.login", Some(("admin", &id.to_string())), json!({ "totp": enrolled })).await?;
             tx.commit().await?;
-            Ok(json!({ "token": token, "totp_enrolled": enrolled, "expires_in_hours": SESSION_HOURS }))
+            Ok(json!({ "token": token, "role": role, "totp_enrolled": enrolled, "expires_in_hours": SESSION_HOURS }))
         }
         Outcome::Bad => {
             tx.commit().await?;

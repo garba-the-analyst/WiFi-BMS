@@ -20,6 +20,7 @@ and designed so another operator can be onboarded as a new *tenant*.
 | Site agent | `site-agent/` | Runs at each site. Bridges FreeRADIUS to the API, queues usage offline, pushes CoA/Disconnect. |
 | Schema | `migrations/` | PostgreSQL 16 with row-level security, append-only ledgers, hash-chained audit log. |
 | UI designs | `ui/` | Portal and admin boards (design source, not yet wired to the API). |
+| Web app | `web/` | Vue 3 single-page app: customer portal at `/`, staff back office at `/admin`. Caddy serves it and proxies `/v1/*`. |
 | Deployment | `Dockerfile`, `docker-compose.yml`, `deploy/` | API + DB + Caddy; site-agent unit, FreeRADIUS and RouterOS configs. |
 | Docs | `docs/` | `api.md`, `deployment.md`, `site-setup.md`, `security-model.md` |
 
@@ -57,13 +58,13 @@ See `docs/deployment.md` (central) and `docs/site-setup.md` (each site). In shor
 cp .env.example .env              # fill in values; PLATFORM_MASTER_KEY = openssl rand -hex 32
 docker compose up -d db
 docker compose --profile tools run --rm migrate
-docker compose up -d api caddy
+docker compose up -d --build api caddy   # edit deploy/config.json first (tenant, site, brand)
 ADMIN_PASSWORD='...' docker compose run --rm api create-admin <tenant-slug> you@example.com owner
 ```
 
 ## Honest status
 
-Done and tested against a real PostgreSQL: money path, RADIUS link, member sign-in and wallet, admin API, hardening.
+Done and tested against a real PostgreSQL: money path, RADIUS link, member sign-in and wallet, admin API, refunds, hardening. The web app was driven in a real browser against the live API (portal, member sign-up, wallet purchase, refund request, owner refund, every admin page). Not yet verified: Caddy/Cloudflare on the real VPS, and real router hardware.
 
 **Not done yet / needs your attention before launch**
 - **Real hardware validation.** The FreeRADIUS `rlm_rest` JSON shape, `radclient` CoA/Disconnect and the RouterOS

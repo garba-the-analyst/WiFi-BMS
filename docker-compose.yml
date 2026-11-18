@@ -1,4 +1,5 @@
-# Production-style stack: PostgreSQL + API + Caddy (automatic HTTPS).
+# Production stack on ONE host: PostgreSQL + API + Caddy (web app + HTTPS).
+#   customers: https://$PUBLIC_HOST/      staff: https://$PUBLIC_HOST/admin      API: https://$PUBLIC_HOST/v1/*
 # 1) cp .env.example .env  and fill every value
 # 2) docker compose up -d db
 # 3) docker compose run --rm migrate
@@ -42,12 +43,14 @@ services:
     expose: ["8080"]
 
   caddy:
-    image: caddy:2
+    build: { context: ., dockerfile: deploy/caddy.Dockerfile }
     restart: unless-stopped
     depends_on: [api]
     ports: ["80:80", "443:443"]
     environment: { PUBLIC_HOST: "${PUBLIC_HOST}" }
-    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data"]
+    volumes:
+      - ./deploy/config.json:/srv/config.json:ro      # which operator (tenant) and site this host serves
+      - caddydata:/data
 
 volumes:
   dbdata:
