@@ -49,6 +49,7 @@ Sign-in is two steps: `POST /admin/login {email, password}` returns `{challenge,
 | GET | `/admin/complaints?status=&q=`, `/admin/complaints/:id` · PUT same `{status?, assign?: "me"\|"none"}` · POST `/admin/complaints/:id/notes` `{body}` | customer_rep |
 | GET | `/admin/errors?state=&source=&severity=&site=&q=&before=&limit=`, `/admin/errors.csv`, `/admin/errors/summary`, `/admin/errors/:id` | customer_rep |
 | POST | `/admin/errors/:id/resolve` `{all_same?}` | admin |
+| GET | `/admin/devices?status=&kind=&site=&q=`, `/admin/devices/:id` | every staff role (`devices`). List: summary counts + devices grouped by kind; detail: clients with customer and plan, 24 h history, recent events |
 | GET/POST | `/admin/users?status=all`, `/admin/users` | ceo (system_admin may also manage ceo and system_admin accounts) |
 | PUT/DELETE | `/admin/users/:id` (role, name, phone, status; delete = remove, history kept) · POST `/admin/users/:id/reset-password`, `/reset-2fa` · GET `/admin/users/:id/activity` | ceo |
 | GET | `/admin/audit?action=&actor=&before=&limit=`, `/admin/audit/verify`, `/admin/audit.csv?from=` | ceo |
@@ -62,4 +63,7 @@ Sign-in is two steps: `POST /admin/login {email, password}` returns `{challenge,
 Seconds can be given directly with `active_seconds` / `valid_seconds`.
 
 ## Site agent (`nt_` token)
-`POST /v1/node/radius/authorize`, `POST /v1/node/radius/accounting`, `POST /v1/node/metrics`, `POST /v1/node/errors` (up to 50 local problems per call, shown in the error log).
+`POST /v1/node/radius/authorize`, `POST /v1/node/radius/accounting`, `POST /v1/node/metrics`, `POST /v1/node/errors` (up to 50 local problems per call, shown in the error log), `POST /v1/node/devices` (snapshot of the site's network hardware, below).
+
+### Device snapshot
+`POST /v1/node/devices {devices: [{key, name, kind: router|ap|cpe|switch|controller|other, model?, mac?, ip?, peer?, reachable?, uptime_s?, signal_dbm?, noise_dbm?, link_quality_pct?, cpu_pct?, mem_pct?, util_pct?, tx_mbps?, rx_mbps?, channel?, latency_ms?, loss_pct?, clients?: [{mac, hostname?, ip?, ssid?, signal_dbm?, connected_s?, rx_bytes?, tx_bytes?}]}]}` (max 100 devices, 500 clients each; values are clamped, bad MACs dropped). Each call replaces that device's client list. Health is judged on arrival and one error-log entry is written per change of state; see docs/site-setup.md for the thresholds.

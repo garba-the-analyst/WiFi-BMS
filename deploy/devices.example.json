@@ -1,0 +1,38 @@
+{
+  "interval_s": 60,
+
+  "ping": [
+    { "name": "Starlink dish router", "ip": "192.168.100.1", "kind": "other" }
+  ],
+
+  "snmp": [
+    {
+      "name": "Hub CPE (Minna tower)",
+      "ip": "192.168.88.10",
+      "kind": "cpe",
+      "model": "TP-Link CPE710",
+      "peer": "Remote CPE (market)",
+      "community": "public",
+      "metrics": {
+        "signal_dbm": "1.3.6.1.4.1.REPLACE.WITH.OID.FROM.SNMPWALK",
+        "noise_dbm": "1.3.6.1.4.1.REPLACE.WITH.OID.FROM.SNMPWALK"
+      },
+      "scale": { "signal_dbm": 1.0 }
+    }
+  ],
+
+  "routeros": {
+    "name": "MikroTik router",
+    "url": "https://192.168.88.1",
+    "user": "agent",
+    "pass": "change-me"
+  },
+
+  "omada": {
+    "url": "https://192.168.88.5:8043",
+    "omada_id": "REPLACE_WITH_OMADAC_ID",
+    "site_id": "REPLACE_WITH_OMADA_SITE_ID",
+    "client_id": "REPLACE_WITH_CLIENT_ID",
+    "client_secret": "REPLACE_WITH_CLIENT_SECRET"
+  }
+}

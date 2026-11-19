@@ -33,3 +33,6 @@ orders, payments, wallet ledger, admin actions. Raw card data never touches us (
 
 ## Known limits
 Tether detection is heuristic; MAC randomisation; in-memory rate limiter; TOTP not single-use.
+
+## Device monitoring
+The site agent only reads the hardware (ping, SNMP GET, RouterOS read-only user, Omada read-only app) and sends the result over the same `nt_` node channel. `devices.json` holds those credentials: keep it `chmod 600`, owned by the agent user, and use a dedicated read-only account on each device. Reported values are clamped, MACs validated and device/client counts capped on arrival; device rows are tenant-isolated by row-level security like everything else, and customer names shown beside a client are visible to the same staff roles that can already see customers.

@@ -1,0 +1,14 @@
+{
+  "interval_s": 60,
+  "ping": [
+    { "name": "Market AP 1", "ip": "192.168.88.21", "kind": "ap", "model": "TP-Link EAP225-Outdoor" },
+    { "name": "Market AP 2", "ip": "192.168.88.22", "kind": "ap", "model": "TP-Link EAP225-Outdoor" },
+    { "name": "Remote CPE (market)", "ip": "192.168.88.11", "kind": "cpe", "model": "TP-Link CPE710", "peer": "Hub CPE (Minna tower)" }
+  ],
+  "routeros": {
+    "name": "MikroTik router",
+    "url": "https://192.168.88.1",
+    "user": "agent",
+    "pass": "change-me"
+  }
+}

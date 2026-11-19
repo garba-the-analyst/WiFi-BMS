@@ -23,7 +23,7 @@ const all = [
   { to: '/admin', label: 'Overview', perm: 'dashboard' }, { to: '/admin/analytics', label: 'Analytics', perm: 'dashboard' },
   { to: '/admin/customers', label: 'Customers', perm: 'customers' }, { to: '/admin/orders', label: 'Orders & refunds', perm: 'orders' },
   { to: '/admin/vouchers', label: 'Vouchers', perm: 'manual_sale' }, { to: '/admin/complaints', label: 'Complaints', perm: 'complaints' },
-  { to: '/admin/plans', label: 'Plans', perm: 'plans_read' }, { to: '/admin/network', label: 'Network', perm: 'dashboard' },
+  { to: '/admin/plans', label: 'Plans', perm: 'plans_read' }, { to: '/admin/network', label: 'Network', perm: 'dashboard' }, { to: '/admin/devices', label: 'Devices', perm: 'devices' },
   { to: '/admin/errors', label: 'Error log', perm: 'errors_view' }, { to: '/admin/security', label: 'Security', perm: 'dashboard' },
   { to: '/admin/staff', label: 'Staff', perm: 'users' }, { to: '/admin/audit', label: 'Activity log', perm: 'activity' },
   { to: '/admin/settings', label: 'Settings', perm: null },

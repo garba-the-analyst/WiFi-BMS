@@ -44,6 +44,9 @@ carries a "check first" hint, the request id, details and a stack where there is
 Known limit: a failure that cannot be tied to one establishment (a request with no tenant in its address) appears in the server's
 own log (`docker compose logs api`) only.
 
+### The Devices page
+Admin → **Devices** shows every CPE radio, access point and router with health, signal and the customers on each. It is fed by the site agent (`DEVICES_FILE`); setup, thresholds and the Omada/SNMP/RouterOS options are in docs/site-setup.md. Changes of state land in the Error log as `hardware.device_offline`, `hardware.device_degraded`, `hardware.device_recovered` and `hardware.collector_failed`.
+
 ## Backups
 `docker compose exec db pg_dump -U owner wifibms | gzip > backup-$(date +%F).sql.gz` nightly, copied off the server.
 Test a restore. The `audit_log` hash chain survives a restore; verify with `/admin/audit/verify`.

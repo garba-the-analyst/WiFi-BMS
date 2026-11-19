@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { naira, bytes, duration, plausiblePhone, safeHotspotLink, mixHex, isHexColour, planSummary, ago, roleLabel } from './format'
+import { naira, bytes, duration, plausiblePhone, safeHotspotLink, mixHex, isHexColour, planSummary, ago, roleLabel, signalQuality, kindLabel } from './format'
 
 describe('format', () => {
   it('shows naira from kobo', () => {
@@ -68,5 +68,19 @@ describe('plan and staff wording', () => {
   it('names roles', () => {
     expect(roleLabel('customer_rep')).toBe('Customer rep')
     expect(roleLabel('weird')).toBe('weird')
+  })
+})
+
+describe('device wording', () => {
+  it('grades radio signal with the same limits the server uses', () => {
+    expect(signalQuality(-55)).toEqual({ label: 'strong', cls: 'ok' })
+    expect(signalQuality(-70).label).toBe('fair')
+    expect(signalQuality(-75).label).toBe('weak')
+    expect(signalQuality(null).label).toBe('–')
+  })
+  it('names device kinds', () => {
+    expect(kindLabel('cpe')).toBe('Radio link')
+    expect(kindLabel('ap')).toBe('Access point')
+    expect(kindLabel('x')).toBe('x')
   })
 })

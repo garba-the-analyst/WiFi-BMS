@@ -422,7 +422,10 @@ pub async fn list(st: &AppState, tenant: &str, h: &HeaderMap, status: Option<&st
     tx.commit().await?;
     let arr = devices.as_array().cloned().unwrap_or_default();
     let count = |s: &str| arr.iter().filter(|d| d["status"] == s).count();
-    let clients: i64 = arr.iter().filter(|d| d["kind"] == "ap" || d["kind"] == "router").map(|d| d["clients_count"].as_i64().unwrap_or(0)).sum();
+    // A customer appears on the router's hotspot list and on the AP they hang off: count each once.
+    // With access points reporting, use them; with none (no controller), the router's list is the best figure there is.
+    let sum = |kind: &str| arr.iter().filter(|d| d["kind"] == kind).map(|d| d["clients_count"].as_i64().unwrap_or(0)).sum::<i64>();
+    let clients = if arr.iter().any(|d| d["kind"] == "ap") { sum("ap") } else { sum("router") };
     Ok(
         json!({ "summary": { "online": count("online"), "degraded": count("degraded"), "offline": count("offline"), "total": arr.len(), "clients_on_aps": clients }, "devices": devices }),
     )

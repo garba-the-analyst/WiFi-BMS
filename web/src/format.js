@@ -99,3 +99,13 @@ export function ago(v, now = Date.now()) {
   if (s < 86400) return Math.round(s / 3600) + ' h ago'
   return Math.round(s / 86400) + ' d ago'
 }
+
+/** How good a radio signal is, in words people can act on. Matches the server's "weak link" rule (-75 dBm). */
+export function signalQuality(dbm) {
+  if (dbm == null || isNaN(dbm)) return { label: '–', cls: '' }
+  if (dbm >= -65) return { label: 'strong', cls: 'ok' }
+  if (dbm > -75) return { label: 'fair', cls: 'warn' }
+  return { label: 'weak', cls: 'bad' }
+}
+export const KIND_LABELS = { router: 'Router', ap: 'Access point', cpe: 'Radio link', switch: 'Switch', controller: 'Controller', other: 'Device' }
+export const kindLabel = (k) => KIND_LABELS[k] || k

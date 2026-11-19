@@ -25,6 +25,7 @@ const routes = [
       { path: 'plans', component: () => import('./views/admin/PlansAdmin.vue'), meta: { perm: 'plans_read' } },
       { path: 'vouchers', component: () => import('./views/admin/Vouchers.vue'), meta: { perm: 'manual_sale' } },
       { path: 'complaints', component: () => import('./views/admin/Complaints.vue'), meta: { perm: 'complaints' } },
+      { path: 'devices', component: () => import('./views/admin/Devices.vue'), meta: { perm: 'devices' } },
       { path: 'errors', component: () => import('./views/admin/Errors.vue'), meta: { perm: 'errors_view' } },
       { path: 'staff', component: () => import('./views/admin/Staff.vue'), meta: { perm: 'users' } },
       { path: 'network', component: () => import('./views/admin/Network.vue'), meta: { perm: 'dashboard' } },

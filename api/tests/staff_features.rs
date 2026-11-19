@@ -922,6 +922,20 @@ async fn the_devices_page_shows_health_signal_and_connected_customers_to_every_r
     assert_eq!(all.as_array().unwrap().iter().filter(|e| e["code"] == "hardware.device_recovered").count(), 2, "{all}");
     let (_, list, _) = w.call("GET", "/devices", Some(&rep), None).await;
     assert_eq!(list["summary"]["online"], 2);
+    // a router that lists the same customers must not double the figure while an AP reports
+    let before = list["summary"]["clients_on_aps"].as_i64().unwrap();
+    assert_eq!(before, 2, "{list}");
+    w.req(
+        "POST",
+        "/v1/node/devices",
+        Some(&nt),
+        Some(json!({ "devices": [
+            { "key": "rtr", "name": "Router", "kind": "router", "reachable": true, "clients": [{ "mac": "AA:BB:CC:00:11:22" }, { "mac": "AA:BB:CC:00:99:99" }, { "mac": "AA:BB:CC:00:99:98" }] }
+        ] })),
+    )
+    .await;
+    let (_, list2, _) = w.call("GET", "/devices", Some(&rep), None).await;
+    assert_eq!(list2["summary"]["clients_on_aps"], 2, "router clients must not be added to AP clients: {list2}");
 
     // the device page lists what happened to this device
     let (_, d, _) = w.call("GET", &format!("/devices/{}", ap["id"].as_str().unwrap()), Some(&rep), None).await;

@@ -7,7 +7,7 @@
 //! | `ping`     | any device with an address  | up/down, latency, packet loss                                                    |
 //! | `snmp`     | CPE radios, switches, APs   | ping plus uptime and any number the device exposes by SNMP (signal, noise, CCQ…) |
 //! | `routeros` | the MikroTik router         | CPU, memory, uptime, version, and every hotspot client                           |
-//! | `omada`    | TP-Link OC200 controller    | every access point it manages: health, channel, and the clients on each          |
+//! | `omada`    | Omada controller (OC200 or the free Software Controller) | every access point it manages: health, channel, and the clients on each          |
 //!
 //! Every round (default 60 s) all sources are read in parallel. A source that fails does not stop the
 //! others: its failure becomes one `hardware.collector_failed` entry in the error log, and its devices simply
