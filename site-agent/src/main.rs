@@ -49,6 +49,30 @@ async fn main() {
         }
     });
 
+    // Optional: watch the site's radios, access points and router for the admin Devices page.
+    if let Some(path) = cfg.devices_file.clone() {
+        let dev = match site_agent::devices::DevicesConfig::load(&path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("site-agent cannot start: {e}");
+                std::process::exit(2);
+            }
+        };
+        if !dev.is_empty() {
+            tracing::info!(every_s = dev.interval_s, "device monitoring on");
+            let a = agent.clone();
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(dev.interval_s));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tick.tick().await;
+                    let (reports, problems) = site_agent::devices::collect_all(&dev).await;
+                    a.send_devices(&reports, problems).await;
+                }
+            });
+        }
+    }
+
     let app = router(AppState { agent, local_key: Arc::new(cfg.local_key.clone()) });
     let listener = tokio::net::TcpListener::bind(&cfg.listen).await.expect("bind the listen address");
     tracing::info!(listen = %cfg.listen, "site agent ready");

@@ -260,6 +260,16 @@ impl Agent {
     }
 
     /// Numbers for the admin Network screen.
+    /// Send one snapshot of the site's hardware, plus the problems found while reading it.
+    pub async fn send_devices(&self, devices: &[crate::devices::DeviceReport], problems: Vec<ErrorEvent>) {
+        for p in problems {
+            self.report(p.source, p.severity, p.code, p.message, p.details);
+        }
+        if let Err(e) = self.central.devices(devices).await {
+            tracing::debug!(error = %e, "device snapshot not sent");
+        }
+    }
+
     pub async fn send_metrics(&self, extra: &[(String, f64)]) {
         let mut m = vec![("agent_up".to_string(), 1.0), ("agent_spool_depth".to_string(), self.spool_depth() as f64)];
         m.extend_from_slice(extra);

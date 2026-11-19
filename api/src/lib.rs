@@ -31,6 +31,7 @@ pub mod harden;
 pub mod http;
 pub mod mail;
 pub mod member;
+pub mod netmon;
 pub mod orders;
 pub mod paystack;
 pub mod radius;

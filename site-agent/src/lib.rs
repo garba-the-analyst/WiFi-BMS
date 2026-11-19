@@ -24,6 +24,7 @@
 pub mod central;
 pub mod config;
 pub mod control;
+pub mod devices;
 pub mod radius_map;
 pub mod server;
 pub mod service;

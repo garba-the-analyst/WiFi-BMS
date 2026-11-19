@@ -19,6 +19,8 @@ pub struct Config {
     pub router_user: Option<String>,
     pub router_pass: Option<String>,
     pub spool_path: String,
+    /// Optional `devices.json`: which radios, access points and routers to watch (see `docs/site-setup.md`).
+    pub devices_file: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,6 +59,7 @@ impl Config {
             router_user: get("ROUTER_USER").filter(|v| !v.is_empty()),
             router_pass: get("ROUTER_PASS").filter(|v| !v.is_empty()),
             spool_path: get("SPOOL_PATH").unwrap_or_else(|| "/var/lib/site-agent/spool.jsonl".into()),
+            devices_file: get("DEVICES_FILE").filter(|v| !v.is_empty()),
         })
     }
 

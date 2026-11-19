@@ -34,6 +34,11 @@ pub trait Central: Send + Sync {
     async fn errors(&self, _events: &[crate::wire::ErrorEvent]) -> Result<(), CentralError> {
         Ok(())
     }
+    /// A snapshot of the site's network hardware for the admin Devices page. Best effort: a snapshot is out of
+    /// date within a minute, so it is never queued.
+    async fn devices(&self, _devices: &[crate::devices::DeviceReport]) -> Result<(), CentralError> {
+        Ok(())
+    }
 }
 
 pub struct HttpCentral {
@@ -86,6 +91,11 @@ impl Central for HttpCentral {
 
     async fn errors(&self, events: &[crate::wire::ErrorEvent]) -> Result<(), CentralError> {
         let _: serde_json::Value = self.post("/v1/node/errors", &serde_json::json!({ "events": events })).await?;
+        Ok(())
+    }
+
+    async fn devices(&self, devices: &[crate::devices::DeviceReport]) -> Result<(), CentralError> {
+        let _: serde_json::Value = self.post("/v1/node/devices", &serde_json::json!({ "devices": devices })).await?;
         Ok(())
     }
 }

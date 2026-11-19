@@ -88,6 +88,10 @@ pub fn hint_for(code: &str) -> Option<&'static str> {
         "webapp.api_error" => "The web app could not reach the API or got a server error. If many appear at once, the API or the network is down.",
         "hardware.node_offline" => "The site agent stopped reporting. Check power and internet at the site, then 'systemctl status site-agent' on the site mini-PC.",
         "hardware.node_recovered" => "The site agent is reporting again.",
+        "hardware.device_offline" => "A network device is not answering. Check its power and cable first, then whether the site's switch or radio link feeding it is up. For a radio (CPE) also check the other end of the link. The Devices page shows when it last answered.",
+        "hardware.device_degraded" => "A device is working but unhealthy. The reasons in the details say what is wrong: weak signal (re-align or clear obstructions), busy radio (too many clients or interference; try another channel), or a busy CPU.",
+        "hardware.device_recovered" => "A device that had a problem is healthy again.",
+        "hardware.collector_failed" => "The site agent could not read one kind of hardware (the Omada controller, the router, or SNMP). Check the address and password in the site's devices.json and that the mini-PC can reach it.",
         "radius.coa_failed" => "A disconnect/limit command to the router failed. Check that the router is reachable from the mini-PC, the CoA secret, and that RouterOS 'incoming' RADIUS is enabled.",
         "hardware.router_unreachable" => "The site agent could not talk to the router. Check the router's power, the cable to the mini-PC, and the REST credentials.",
         "site_agent.central_unreachable" => "The site could not reach the central server. Customers with existing sessions keep working; new logins use the offline queue. Check the site's internet.",
@@ -245,6 +249,7 @@ pub async fn watch_once(pool: &PgPool) -> crate::error::Result<()> {
         .await?;
         sqlx::query("DELETE FROM error_events WHERE ts < now() - make_interval(days => $1)").bind(RETENTION_DAYS).execute(&mut *tx).await?;
         tx.commit().await?;
+        crate::netmon::sweep(pool, t).await?;
         for (site, name, last) in offline {
             record(
                 pool,

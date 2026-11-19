@@ -121,6 +121,12 @@ impl World {
         assert_eq!(s, StatusCode::OK, "{v}");
         v["token"].as_str().unwrap().to_string()
     }
+    /// A special voucher made by `token`'s owner; returns its code.
+    async fn staff_voucher(&self, token: &str) -> String {
+        let (s, v, _) = self.call("POST", "/vouchers/special", Some(token), Some(json!({ "label": "test", "site": "site-1" }))).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        v["vouchers"][0]["access_code"].as_str().unwrap().replace(' ', "")
+    }
     async fn connect_code(&self, code: &str) -> StatusCode {
         self.public("POST", "/connect", Some(json!({ "site": "site-1", "mac": "AA:BB:CC:00:11:33", "code": code, "accept_terms": true }))).await.0
     }
@@ -810,4 +816,187 @@ async fn a_new_establishment_is_one_command_and_is_fully_separate() {
         (Some("Hotel Minna Wi-Fi"), Some("#1D4ED8"), Some("0803 123 4567"), Some("10.5.50.1"))
     );
     assert_eq!(w.req("GET", "/v1/t/does-not-exist/brand", None, None).await.0, StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Live network devices (APs, CPE radios, routers) and who is connected to them
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_devices_page_shows_health_signal_and_connected_customers_to_every_role() {
+    let Some(w) = world().await else { return };
+    let sys = w.staff("sys@x.test", "system_admin").await;
+    let rep = w.staff("rep@x.test", "customer_rep").await;
+    let (_, tok, _) = w.call("POST", "/node-tokens", Some(&sys), Some(json!({ "site": "site-1", "name": "PC" }))).await;
+    let nt = tok["token"].as_str().unwrap().to_string();
+
+    // A customer with a live plan, connected through the first AP.
+    let code = w.staff_voucher(&sys).await;
+    assert_eq!(w.connect_code(&code).await, StatusCode::OK);
+    // (the binding itself is made when the router first authenticates the phone; do that step here)
+    sqlx::query(
+        "INSERT INTO device_bindings (tenant_id, entitlement_id, device_id)
+         SELECT $1, e.id, d.id FROM access_codes c JOIN entitlements e ON e.access_code_id = c.id, devices d WHERE c.code = $2 AND d.mac = 'aa:bb:cc:00:11:33'",
+    )
+    .bind(w.tenant)
+    .bind(&code)
+    .execute(&w.admin)
+    .await
+    .unwrap();
+
+    let report = |cpe_signal: f64, ap_up: bool| {
+        json!({ "devices": [
+            { "key": "cpe-hub", "name": "Hub radio", "kind": "cpe", "model": "CPE710", "ip": "192.168.88.10", "peer": "cpe-remote",
+              "signal_dbm": cpe_signal, "noise_dbm": -95, "link_quality_pct": 90, "tx_mbps": 180.5, "rx_mbps": 170.2, "uptime_s": 86400, "cpu_pct": 12, "latency_ms": 2.5, "loss_pct": 0 },
+            { "key": "AA-BB-CC-DD-EE-01", "name": "Market AP 1", "kind": "ap", "model": "EAP225-Outdoor", "mac": "AA-BB-CC-DD-EE-01", "ip": "192.168.88.21", "reachable": ap_up,
+              "cpu_pct": 30, "mem_pct": 55, "util_pct": 40, "channel": "6 (2.4 GHz)",
+              "clients": [
+                { "mac": "AA:BB:CC:00:11:33", "hostname": "tecno-phone", "ip": "10.5.50.20", "ssid": "Waste2Light", "signal_dbm": -61, "connected_s": 600, "rx_bytes": 1000, "tx_bytes": 2000 },
+                { "mac": "AA:BB:CC:00:99:99", "signal_dbm": -80 },
+                { "mac": "not-a-mac" } ] },
+        ] })
+    };
+    let (s, v, _) = w.req("POST", "/v1/node/devices", Some(&nt), Some(report(-58.0, true))).await;
+    assert_eq!((s, v["stored"].as_i64()), (StatusCode::OK, Some(2)), "{v}");
+    assert_eq!(w.req("POST", "/v1/node/devices", Some("nt_wrongwrongwrongwrongwrongwrong"), Some(report(-58.0, true))).await.0, StatusCode::UNAUTHORIZED);
+
+    // every staff role may look (customer reps included); the list says what is healthy
+    for t in [&sys, &rep] {
+        let (s, list, _) = w.call("GET", "/devices", Some(t), None).await;
+        assert_eq!(s, StatusCode::OK, "{list}");
+        assert_eq!(
+            (list["summary"]["online"].as_i64(), list["summary"]["total"].as_i64(), list["summary"]["clients_on_aps"].as_i64()),
+            (Some(2), Some(2), Some(2)),
+            "{list}"
+        );
+    }
+    let (_, list, _) = w.call("GET", "/devices?kind=ap", Some(&rep), None).await;
+    let ap = &list["devices"][0];
+    assert_eq!((ap["name"].as_str(), ap["status"].as_str(), ap["mac"].as_str()), (Some("Market AP 1"), Some("online"), Some("aa:bb:cc:dd:ee:01")));
+    assert_eq!(list["devices"].as_array().unwrap().len(), 1);
+
+    // detail: the invalid MAC is dropped, the known customer is named, the unknown phone is still listed
+    let (s, d, _) = w.call("GET", &format!("/devices/{}", ap["id"].as_str().unwrap()), Some(&rep), None).await;
+    assert_eq!(s, StatusCode::OK, "{d}");
+    let clients = d["clients"].as_array().unwrap();
+    assert_eq!(clients.len(), 2, "{d}");
+    assert_eq!(clients[0]["mac"], "aa:bb:cc:00:11:33", "strongest signal first");
+    assert!(clients[0]["plan"].is_string(), "the customer's plan is shown: {d}");
+    assert!(clients[1]["plan"].is_null());
+    assert_eq!(d["samples"].as_array().unwrap().len(), 1);
+    // searching and unknown filters
+    let (_, hit, _) = w.call("GET", "/devices?q=710", Some(&rep), None).await;
+    assert_eq!(hit["devices"].as_array().unwrap().len(), 1);
+    assert_eq!(w.call("GET", "/devices?status=exploded", Some(&rep), None).await.0, StatusCode::BAD_REQUEST);
+
+    // the radio link weakens: ONE warning, not one per report
+    for _ in 0..3 {
+        w.req("POST", "/v1/node/devices", Some(&nt), Some(report(-79.0, true))).await;
+    }
+    let (_, ev, _) = w.call("GET", "/errors?source=hardware", Some(&rep), None).await;
+    let degraded: Vec<&Value> = ev.as_array().unwrap().iter().filter(|e| e["code"] == "hardware.device_degraded").collect();
+    assert_eq!(degraded.len(), 1, "{ev}");
+    assert_eq!(degraded[0]["severity"], "warning");
+    assert!(degraded[0]["message"].as_str().unwrap().contains("Weak radio link"));
+    assert!(degraded[0]["hint"].is_string());
+    let (_, list, _) = w.call("GET", "/devices?status=degraded", Some(&rep), None).await;
+    assert_eq!(list["devices"][0]["name"], "Hub radio");
+    assert!(list["devices"][0]["reasons"][0].as_str().unwrap().contains("-79 dBm"));
+
+    // the access point stops answering: one critical entry, its last known numbers are kept
+    w.req("POST", "/v1/node/devices", Some(&nt), Some(report(-79.0, false))).await;
+    w.req("POST", "/v1/node/devices", Some(&nt), Some(report(-79.0, false))).await;
+    let (_, ev, _) = w.call("GET", "/errors?source=hardware", Some(&rep), None).await;
+    let off: Vec<&Value> = ev.as_array().unwrap().iter().filter(|e| e["code"] == "hardware.device_offline").collect();
+    assert_eq!((off.len(), off[0]["severity"].as_str()), (1, Some("critical")), "{ev}");
+    let (_, list, _) = w.call("GET", "/devices?status=offline", Some(&rep), None).await;
+    assert_eq!((list["devices"][0]["name"].as_str(), list["devices"][0]["cpu_pct"].as_f64()), (Some("Market AP 1"), Some(30.0)));
+    assert_eq!(list["devices"][0]["clients_count"], 0, "nobody can be connected to a dead AP");
+
+    // everything recovers: a recovery entry, and the earlier problems close themselves
+    w.req("POST", "/v1/node/devices", Some(&nt), Some(report(-58.0, true))).await;
+    let (_, open, _) = w.call("GET", "/errors?source=hardware&state=open", Some(&rep), None).await;
+    let codes: Vec<&str> = open.as_array().unwrap().iter().map(|e| e["code"].as_str().unwrap()).collect();
+    assert!(!codes.contains(&"hardware.device_offline") && !codes.contains(&"hardware.device_degraded"), "{codes:?}");
+    let (_, all, _) = w.call("GET", "/errors?source=hardware&state=all", Some(&rep), None).await;
+    assert_eq!(all.as_array().unwrap().iter().filter(|e| e["code"] == "hardware.device_recovered").count(), 2, "{all}");
+    let (_, list, _) = w.call("GET", "/devices", Some(&rep), None).await;
+    assert_eq!(list["summary"]["online"], 2);
+
+    // the device page lists what happened to this device
+    let (_, d, _) = w.call("GET", &format!("/devices/{}", ap["id"].as_str().unwrap()), Some(&rep), None).await;
+    assert!(d["events"].as_array().unwrap().len() >= 2, "{d}");
+}
+
+#[tokio::test]
+async fn a_device_the_agent_stops_mentioning_goes_offline_once_but_only_while_the_agent_is_alive() {
+    let Some(w) = world().await else { return };
+    let sys = w.staff("sys@x.test", "system_admin").await;
+    let (_, tok, _) = w.call("POST", "/node-tokens", Some(&sys), Some(json!({ "site": "site-1", "name": "PC" }))).await;
+    let nt = tok["token"].as_str().unwrap().to_string();
+    w.req("POST", "/v1/node/devices", Some(&nt), Some(json!({ "devices": [{ "key": "sw1", "name": "Switch", "kind": "switch" }] }))).await;
+    sqlx::query("UPDATE net_devices SET reported_at = now() - interval '10 minutes', last_seen_at = now() - interval '10 minutes' WHERE tenant_id = $1")
+        .bind(w.tenant)
+        .execute(&w.admin)
+        .await
+        .unwrap();
+    // the whole agent is silent: shown offline, but no per-device alarm (the site-agent entry already says it)
+    sqlx::query("INSERT INTO metrics (ts, tenant_id, site_id, metric, value) VALUES (now() - interval '20 minutes', $1, $2, 'agent_up', 1)")
+        .bind(w.tenant)
+        .bind(w.site_id)
+        .execute(&w.admin)
+        .await
+        .unwrap();
+    platform_api::errlog::watch_once(&w.state.pool).await.unwrap();
+    let (_, list, _) = w.call("GET", "/devices", Some(&sys), None).await;
+    assert_eq!(list["devices"][0]["status"], "offline");
+    assert!(list["devices"][0]["reasons"][0].as_str().unwrap().contains("over 3 minutes"));
+    let (_, ev, _) = w.call("GET", "/errors?source=hardware", Some(&sys), None).await;
+    assert!(ev.as_array().unwrap().iter().all(|e| e["code"] != "hardware.device_offline"), "{ev}");
+    // the agent is alive but the device has vanished from its reports: one entry, not one per minute
+    sqlx::query("INSERT INTO metrics (ts, tenant_id, site_id, metric, value) VALUES (now(), $1, $2, 'agent_up', 1)")
+        .bind(w.tenant)
+        .bind(w.site_id)
+        .execute(&w.admin)
+        .await
+        .unwrap();
+    platform_api::errlog::watch_once(&w.state.pool).await.unwrap();
+    platform_api::errlog::watch_once(&w.state.pool).await.unwrap();
+    let (_, ev, _) = w.call("GET", "/errors?source=hardware", Some(&sys), None).await;
+    assert_eq!(ev.as_array().unwrap().iter().filter(|e| e["code"] == "hardware.device_offline").count(), 1, "{ev}");
+}
+
+#[tokio::test]
+async fn devices_are_private_to_each_establishment_and_input_is_bounded() {
+    let Some(w) = world().await else { return };
+    let Some(other) = world().await else { return };
+    let sys = w.staff("sys@x.test", "system_admin").await;
+    let (_, tok, _) = w.call("POST", "/node-tokens", Some(&sys), Some(json!({ "site": "site-1", "name": "PC" }))).await;
+    let nt = tok["token"].as_str().unwrap().to_string();
+    // junk is clamped or skipped, not stored raw
+    let (s, v, _) = w
+        .req(
+            "POST",
+            "/v1/node/devices",
+            Some(&nt),
+            Some(json!({ "devices": [
+            { "key": "x", "name": "Odd", "kind": "toaster", "cpu_pct": 5000, "signal_dbm": -9999 },
+            { "key": "", "name": "No key" } ] })),
+        )
+        .await;
+    assert_eq!((s, v["stored"].as_i64()), (StatusCode::OK, Some(1)), "{v}");
+    let (_, list, _) = w.call("GET", "/devices", Some(&sys), None).await;
+    assert_eq!(
+        (list["devices"][0]["kind"].as_str(), list["devices"][0]["cpu_pct"].as_f64(), list["devices"][0]["signal_dbm"].as_f64()),
+        (Some("other"), Some(100.0), Some(-150.0))
+    );
+    let too_many: Vec<Value> = (0..101).map(|i| json!({ "key": format!("d{i}"), "name": "x" })).collect();
+    assert_eq!(w.req("POST", "/v1/node/devices", Some(&nt), Some(json!({ "devices": too_many }))).await.0, StatusCode::BAD_REQUEST);
+    // the other establishment sees nothing, and cannot open this device by id
+    let o = other.staff("sys@x.test", "system_admin").await;
+    let (_, theirs, _) = other.call("GET", "/devices", Some(&o), None).await;
+    assert_eq!(theirs["devices"].as_array().unwrap().len(), 0);
+    assert_eq!(other.call("GET", &format!("/devices/{}", list["devices"][0]["id"].as_str().unwrap()), Some(&o), None).await.0, StatusCode::NOT_FOUND);
+    // no token, no access
+    assert_eq!(w.call("GET", "/devices", None, None).await.0, StatusCode::UNAUTHORIZED);
 }

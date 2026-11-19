@@ -90,6 +90,7 @@ pub enum Perm {
     ErrorsView,
     ErrorsResolve,
     Complaints,
+    Devices,
 }
 
 impl Perm {
@@ -111,6 +112,7 @@ impl Perm {
         (Perm::ErrorsView, "errors_view"),
         (Perm::ErrorsResolve, "errors_resolve"),
         (Perm::Complaints, "complaints"),
+        (Perm::Devices, "devices"),
     ];
 }
 
@@ -119,7 +121,7 @@ pub fn allows(role: Role, perm: Perm) -> bool {
     use Perm::*;
     use Role::*;
     match perm {
-        SelfService | Customers | PlansRead | ManualSale | ErrorsView | Complaints => true,
+        SelfService | Customers | PlansRead | ManualSale | ErrorsView | Complaints | Devices => true,
         Dashboard | PlansWrite | Orders | RefundDecide | SpecialVoucher | ErrorsResolve => !matches!(role, CustomerRep),
         RefundExecute | Users | Activity | Brand | Secrets => matches!(role, SystemAdmin | Ceo),
         NodeTokens => matches!(role, SystemAdmin),

@@ -69,6 +69,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/admin/complaints", get(a_complaints))
         .route("/v1/t/:tenant/admin/complaints/:id", get(a_complaint).put(a_complaint_update))
         .route("/v1/t/:tenant/admin/complaints/:id/notes", post(a_complaint_note))
+        .route("/v1/t/:tenant/admin/devices", get(a_devices))
+        .route("/v1/t/:tenant/admin/devices/:id", get(a_device))
         .route("/v1/t/:tenant/admin/errors", get(a_errors))
         .route("/v1/t/:tenant/admin/errors.csv", get(a_errors_csv))
         .route("/v1/t/:tenant/admin/errors/summary", get(a_errors_summary))
@@ -78,6 +80,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/t/:tenant/brand", get(brand))
         .route("/v1/t/:tenant/admin/brand", axum::routing::put(a_brand))
         .route("/v1/node/errors", post(node_errors))
+        .route("/v1/node/devices", post(node_devices))
         .route("/v1/t/:tenant/admin/overview", get(a_overview))
         .route("/v1/t/:tenant/admin/analytics/:what", get(a_analytics))
         .route("/v1/t/:tenant/admin/customers", get(a_customers))
@@ -451,4 +454,14 @@ async fn a_refund_execute(State(st): State<AppState>, Path((t, id)): Path<(Strin
 }
 async fn a_refund_decline(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap, Json(b): Json<refunds::Decision>) -> J {
     Ok(Json(refunds::decline(&st, &t, &h, id, b).await?))
+}
+
+async fn node_devices(State(st): State<AppState>, h: HeaderMap, Json(b): Json<crate::netmon::DevicesIn>) -> J {
+    Ok(Json(crate::netmon::ingest(&st, &h, b).await?))
+}
+async fn a_devices(State(st): State<AppState>, Path(t): Tenant, h: HeaderMap, Query(q): Query<Q>) -> J {
+    Ok(Json(crate::netmon::list(&st, &t, &h, q.status.as_deref(), q.kind.as_deref(), q.q.as_deref()).await?))
+}
+async fn a_device(State(st): State<AppState>, Path((t, id)): Path<(String, Uuid)>, h: HeaderMap) -> J {
+    Ok(Json(crate::netmon::detail(&st, &t, &h, id).await?))
 }
