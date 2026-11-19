@@ -1,217 +1,210 @@
 # Installation guide: hardware first, then software
 
-Follow the parts in order. One site is described; repeat Parts 1, 3 and 4 for each additional location
-(the central platform in Part 2 is done once).
+Follow the parts in order. One site is described; repeat Parts 1 and 3 for each extra location (Part 2, the central platform, is done once).
+Each step says **where to click**. Menu names follow the current vendor software; if your firmware version labels something slightly differently,
+look for the same word nearby: the order of the steps is what matters.
 
-> **Honesty note.** The platform code is tested against a real database and in a browser. The router, FreeRADIUS and
-> access-point steps below follow the vendors' documented behaviour but have **not been run on your hardware yet**.
-> Do the first site on the bench with one AP and one phone before you mount anything on a pole.
+> **Honesty note.** The platform is tested against a real database and in a browser. The router, FreeRADIUS, CPE and access-point steps follow the
+> vendors' documented behaviour but have **not been run on your hardware yet**. Do the first site on a table with one AP and one phone before mounting anything.
 
-Hardware assumed (from your quotes): Starlink, MikroTik router (RB5009 or RB951/hEX class), managed or unmanaged PoE switch,
-a mini-PC (site agent + FreeRADIUS), TP-Link EAP225-Outdoor access points, TP-Link CPE710/CPE510 radios for remote spots,
-UPS 1.5 kVA, surge protector, outdoor Cat6.
+**Have ready:** a laptop with an Ethernet port, Winbox (mikrotik.com/download), a phone, a notebook for the address sheet, the Paystack account, the VPS login.
 
----
-
-## Part 1. Connect the hardware
-
-### 1.1 Plan the addresses first (write them on a sheet)
+## 0. The plan on one page
 
 | Network | Range | Used by |
 |---|---|---|
-| Management (untagged) | `192.168.88.0/24` | router `.1`, mini-PC `.2`, CPE radios `.10-.19`, access points `.21-.29`, switch `.5` |
-| Customers (VLAN 10) | `10.10.0.0/22` | customer phones and laptops, router `10.10.0.1` |
+| Management (untagged) | `192.168.88.0/24` | router `.1`, mini-PC `.2`, switch `.5`, CPE radios `.10-.19`, access points `.21-.29` |
+| Customers (VLAN 10) | `10.10.0.0/22` | phones and laptops; router `10.10.0.1` |
 
-Why two networks: customers must not be able to reach your access points, radios or mini-PC. Customer traffic travels on
-VLAN 10; management traffic is untagged. If you skip the VLAN (single network), it still works but customers share the network with
-your equipment: not recommended for a paid service.
+Customers get VLAN 10 so they cannot reach your equipment. One secret (`RADIUS_SECRET`, you invent it) is used in three places and must be identical.
+Write on your sheet: `RADIUS_SECRET`, `LOCAL_KEY` (`openssl rand -hex 24`), each device's MAC address and IP.
 
-### 1.2 Power and protection
-1. Put the **UPS** on a solid shelf, away from rain and heat. Plug the **surge protector** into the UPS output, and plug everything
-   (Starlink power supply, router, switch, mini-PC, PoE injectors) into the surge protector. The UPS keeps customers online through short outages
-   and shuts the mini-PC down cleanly.
-2. Earth the poles/masts for outdoor radios and APs (a ground wire to a driven rod). Lightning is the commonest killer of outdoor Wi-Fi gear in Nigeria.
+---
 
-### 1.3 Starlink to the router
-1. Mount the Starlink dish with a clear sky view, route its cable to the Starlink router/adapter indoors.
-2. Put the Starlink router in **bypass mode** (Starlink app → Settings → Advanced → Bypass mode; Gen 2 routers need the
-   Ethernet adapter) so only your MikroTik hands out addresses. Otherwise you get two routers, "double NAT" and hotspot problems.
-3. Cable: Starlink Ethernet port → MikroTik **ether1** (WAN). Starlink uses carrier-grade NAT, which is fine: the site agent only calls
-   out to the platform, nothing connects in.
+## Part 1. Connect and configure the hardware
 
-### 1.4 Router to switch to devices
-1. MikroTik **ether2** → switch (this single cable carries management untagged and customers on VLAN 10).
-2. Mini-PC → a switch port (untagged).
-3. Each access point → a **PoE** switch port (or PoE injector). Check the label: the EAP225-Outdoor takes 802.3af PoE or passive 24 V.
-   Max cable length 100 m. Use outdoor-rated Cat6 outdoors and seal the connectors.
-4. Each CPE radio (CPE710/CPE510) uses **passive 24 V PoE** from its supplied injector. **Never** plug it into a standard 802.3af/at switch port.
-   Plug the injector's LAN port into the switch, its POE port to the radio.
-5. If you use a managed switch, set the router port and every AP port as **trunk**: management untagged, VLAN 10 tagged.
-   An unmanaged switch simply passes tagged frames and needs no setup.
-6. Label every cable and write each device's MAC address and planned IP on your sheet.
+### 1.1 Power and protection
+UPS on a solid shelf; surge protector into the UPS; Starlink supply, router, switch, mini-PC and PoE injectors into the surge protector.
+Earth every outdoor mast with a wire to a driven rod (lightning is the main cause of dead outdoor Wi-Fi gear).
 
-### 1.5 Radio links to remote spots (600 m+)
-1. Hub radio at the main site and remote radio at the far spot must have **line of sight**. Aim the dish-side of each CPE at the other.
-2. Configure them as a pair: one **Access Point** mode (hub, SSID e.g. `link-1`), one **Client/Station** mode (remote), same SSID and a WPA2 password.
-   Set their management IPs to `192.168.88.10` (hub) and `.11` (remote), gateway `192.168.88.1`.
-3. Use each radio's alignment tool (signal bar/beeper) until signal is stronger than **-65 dBm**. The platform flags a CPE at -75 dBm or worse.
-4. At the remote spot, cable the remote radio's LAN port to a switch/injector and then to the local access point(s).
-   Tagged VLAN 10 must pass through the radio link: enable "bridge/transparent" mode on both radios (default in client/AP bridge mode).
+### 1.2 Starlink to the router
+1. **Starlink app → Settings → Advanced → Bypass mode** (the menu name can vary by Starlink hardware; Gen 2 needs the Starlink Ethernet adapter). Switch bypass **on**
+   so only your MikroTik hands out addresses.
+2. Cable: Starlink Ethernet → MikroTik **ether1**. Starlink is behind carrier NAT; fine, the agent only calls out.
 
-### 1.6 Access points
-1. Give each AP a static management IP (`192.168.88.21`, `.22`, ...). Do this on the bench: connect a laptop to the AP's PoE port, browse to its
-   default address (see the label), set the IP, gateway `192.168.88.1`.
-2. Create **one SSID** for customers (for example `Waste2Light Wi-Fi`), **open (no password)**: login is by the portal. Tag it to **VLAN 10**.
-   Turn on **client isolation** so customers cannot see each other. Lower the transmit power on APs close together; use channels 1, 6, 11 on 2.4 GHz.
-3. Controller choice. Your APs are Omada products, and you did not buy the OC200:
-   - **Recommended:** install the free **Omada Software Controller** on the mini-PC (Part 3.2). You get all APs in one screen, shared SSID settings and,
-     importantly, per-AP client lists on the Devices page.
-   - **Standalone:** configure each AP's web page by hand (same SSID/VLAN on each). The Devices page then shows up/down, latency and loss per AP but no per-AP client list.
+### 1.3 MikroTik router (RouterOS 7)
+**Start clean** (the factory config would clash with ours):
+1. Plug the laptop into **ether2**. Open Winbox → **Neighbors** tab → click the router's MAC address → Connect (login `admin`, blank password).
+2. **System → Reset Configuration** → tick **No Default Configuration** and **Do Not Backup** → Reset. Reconnect by MAC the same way.
+3. **System → Users → admin → Password**: set a long password.
 
-### 1.7 Test the hardware before software
-From a laptop on `192.168.88.0/24`: you can ping `192.168.88.1`, each AP, each CPE. From the router: `/ping 8.8.8.8` works. Fix this before continuing.
+Then open **New Terminal** (left menu) and paste, adjusting if you use other ports:
+```
+/ip dhcp-client add interface=ether1 disabled=no
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
+/ip dns set allow-remote-requests=yes servers=1.1.1.1,8.8.8.8
+/ip address add address=192.168.88.1/24 interface=ether2
+/interface vlan add name=vlan10 vlan-id=10 interface=ether2
+/ip address add address=10.10.0.1/22 interface=vlan10
+/ip firewall filter add chain=forward in-interface=vlan10 dst-address=192.168.88.0/24 action=drop comment="customers cannot reach management"
+/ip firewall filter add chain=input in-interface=vlan10 protocol=tcp dst-port=22,23,8291,8728,8729 action=drop comment="no router admin from customers"
+```
+Where each lives in Winbox: **IP → DHCP Client**, **IP → Firewall → NAT**, **IP → DNS**, **IP → Addresses**, **Interfaces → VLAN**, **IP → Firewall → Filter Rules**.
+Do **not** create a DHCP server or pool by hand: the hotspot wizard below makes them.
+
+**Lock down services:** **IP → Services**: disable `telnet`, `ftp`, `www`, `api`, `api-ssl`. Double-click `winbox`, `ssh` and `www-ssl` and set **Available From** to `192.168.88.0/24`.
+For `www-ssl` the certificate can stay blank for now; the agent reads RouterOS through it on the LAN (Part 3.6).
+
+**Hotspot:**
+1. **IP → Hotspot → Hotspot Setup** (button). Answer: interface `vlan10`; local address `10.10.0.1/22`, tick *Masquerade network*; address pool `10.10.0.10-10.10.3.250`;
+   SSL certificate `none`; SMTP `0.0.0.0`; DNS servers `1.1.1.1,8.8.8.8`; DNS name blank; user `admin`, password blank.
+2. **IP → Hotspot → Server Profiles** → double-click `hsprof1`: tab **Login** → tick only **HTTP PAP**; tab **RADIUS** → tick **Use RADIUS**, **Accounting**, **Interim Update** `00:01:00`.
+   (If the wizard named the profile differently, use that name; check with `/ip hotspot profile print`.)
+3. **RADIUS** (left menu) → **+**: Service `hotspot`, Address `192.168.88.2`, Secret = your `RADIUS_SECRET`, Timeout `3s`. Click the **Incoming** button: tick **Accept**, Port `3799`.
+4. **IP → Hotspot → Walled Garden** tab → **+** (Action allow), one entry each for Dst. Host: `wifi.waste2light.com`, `*.paystack.com`, `*.paystack.co`, `js.paystack.co`, `checkout.paystack.com`.
+   (`deploy/routeros-hotspot.rsc` does steps 2-4 in one paste; edit the secret first.)
+5. **Files** (left menu): drag `deploy/routeros-login.html` into the window, then rename it to `hotspot/login.html` (replace the existing one). Open it first and set `site=site-1` to your site name.
+6. **IP → Hotspot → Server Profiles → hsprof1 → General**: if the portal page looks half-loaded, confirm *HTML Directory* is `hotspot`.
+
+### 1.4 Switch and devices
+1. Router **ether2** → switch. Mini-PC → switch port. Each AP → a **PoE** port (EAP225-Outdoor: 802.3af, or passive 24 V; max 100 m; outdoor-rated Cat6; seal connectors).
+2. **Managed switch** (open its web page, normally via its management IP): router port and every AP port = **trunk/tagged**: VLAN 1 untagged (management), VLAN 10 tagged.
+   An unmanaged switch passes tagged frames and needs no setup.
+3. Label every cable and write each MAC next to its planned IP.
+
+### 1.5 TP-Link CPE radios (remote spots, 600 m+)
+1. Power each through its **passive 24 V PoE injector** (never a standard 802.3af/at port). Injector **LAN** → your switch, injector **POE** → the radio.
+2. Set the laptop to a fixed `192.168.0.100/24`, plug it into the same switch, browse to the radio's default address (see the label; commonly `http://192.168.0.254`).
+   Log in; the first time it forces you to set the admin password.
+3. Run the **Quick Setup** wizard. Hub radio: operation mode **Access Point**, SSID `link-1`, WPA2 password, LAN IP `192.168.88.10`, gateway `192.168.88.1`.
+   Remote radio: **Client** (station) mode with the same SSID and password, LAN IP `192.168.88.11`. Keep **bridge** mode so VLAN 10 passes through.
+4. Align: use the firmware's **antenna alignment** page (under *Tools* or *Wireless*, name varies) and adjust the aim until signal is **better than -65 dBm**.
+   The platform flags a CPE at -75 dBm or worse.
+5. Set the laptop back to automatic addressing.
+
+### 1.6 Access points and the controller
+Your APs are Omada products and you did not buy the OC200, so use the **free Omada Software Controller** on the mini-PC (otherwise per-AP client lists are not possible):
+1. After Part 3.1 (mini-PC prepared), install the Omada Software Controller from TP-Link's download page (search "Omada Software Controller", Linux .deb).
+   It needs the dependencies its page lists. Then browse to `https://192.168.88.2:8043` from the laptop and finish the setup wizard (controller name, admin account, region).
+2. Power the APs. In the controller: **Devices → Pending** → select each AP → **Adopt** (wait for *Connected*). They are found automatically because they sit on the same network.
+3. Click an AP in **Devices** → **Config → Network** (or *IP Settings*) → **Static** → `192.168.88.21` (then `.22`...), gateway `192.168.88.1`.
+4. **Settings → Wireless Networks → Create New Wireless Network**: name `Waste2Light Wi-Fi`, security **None** (open). Open **Advanced Settings**: tick **VLAN** and enter `10`;
+   turn on **Client Isolation** (or *Guest isolation*). Apply. Every adopted AP receives it.
+5. **Settings → Wireless Networks → Wireless settings (per AP)**: 2.4 GHz channels 1, 6, 11 so neighbouring APs differ; lower transmit power on APs close together.
+6. Controller account for the Devices page: **Settings → Platform Integration → Open API → Add New App** → mode **Client**, read-only role. Copy the **Client ID**, **Client Secret**, and the **Omada ID** shown on that page.
+   The **site id** is the long code in the browser address while viewing your site.
+
+### 1.7 Check before software
+From the laptop on `192.168.88.0/24`: ping `192.168.88.1`, each AP and CPE. In Winbox **New Terminal**: `/ping 8.8.8.8`. Join the Wi-Fi with the phone: it gets a `10.10.x.x` address and the login page opens (it will not work yet; the portal comes next).
 
 ---
 
 ## Part 2. Central platform (the VPS, once)
 
-You need a VPS (1 vCPU / 1 GB is enough to start), your domain `wifi.waste2light.com` and Docker with Compose v2.
-Full detail is in `docs/deployment.md`; the short version:
-
-1. Cloudflare: `A  wifi  →  <VPS IP>` (proxied is fine), SSL/TLS **Full (strict)**. Firewall the VPS to ports 80/443 and SSH from your address.
-2. On the VPS: `git clone https://github.com/garba-the-analyst/WiFi-BMS.git && cd WiFi-BMS && cp .env.example .env`.
-   Edit `.env`: `PUBLIC_HOST=wifi.waste2light.com`, two long random database passwords, and
-   `PLATFORM_MASTER_KEY=$(openssl rand -hex 32)`. **Back the master key up offline** (losing it makes saved Paystack keys unreadable).
+1. **Cloudflare** (dash.cloudflare.com → your domain `waste2light.com`): **DNS → Records → Add record**: Type `A`, Name `wifi`, IPv4 = VPS address, Proxy on.
+   **SSL/TLS → Overview** → **Full (strict)**. On the VPS firewall allow 80, 443 and SSH from your address only.
+2. On the VPS (Docker with Compose v2 installed):
+   ```
+   git clone https://github.com/garba-the-analyst/WiFi-BMS.git && cd WiFi-BMS && cp .env.example .env
+   nano .env
+   ```
+   In `.env` set: `PUBLIC_HOST=wifi.waste2light.com`, `OWNER_DB_PASSWORD` and `APP_DB_PASSWORD` (long random, different), `PLATFORM_MASTER_KEY` (output of `openssl rand -hex 32`).
+   **Back up `PLATFORM_MASTER_KEY` offline**: losing it makes saved Paystack keys unreadable. Optional: `SMTP_URL`/`MAIL_FROM`, `TERMII_API_KEY`/`TERMII_SENDER_ID` for emailed/SMS codes.
 3. ```
    docker compose up -d db
    docker compose --profile tools run --rm migrate
    docker compose run --rm api create-tenant waste2light "Waste2Light Wi-Fi" site-1 "Main site"
+   docker compose up -d --build api caddy
+   ADMIN_PASSWORD='a long passphrase' docker compose run --rm -e ADMIN_PASSWORD api create-admin waste2light you@example.com system_admin
    ```
-   `deploy/config.json` already says tenant `waste2light`, site `site-1`; edit it if you chose other names.
-4. `docker compose up -d --build api caddy` (builds the web app and fetches the TLS certificate; the first build takes several minutes).
-5. Create your account:
-   `ADMIN_PASSWORD='a long passphrase' docker compose run --rm -e ADMIN_PASSWORD api create-admin waste2light you@example.com system_admin`
-6. Open `https://wifi.waste2light.com/admin`, sign in and enrol 2-step verification (authenticator app). Then:
-   Settings → add the **Paystack** secret key, business details; **Plans** → create your plans; **Staff** → add the CEO and others.
-7. Paystack dashboard → webhook URL `https://wifi.waste2light.com/v1/t/waste2light/webhooks/paystack`.
-8. Settings → **Site agent keys** → create a key for the site. **Copy the `nt_...` token now: it is shown once.**
+   `deploy/config.json` already says tenant `waste2light`, site `site-1`; edit it before the build if you chose other names. The first build takes several minutes.
+4. Open `https://wifi.waste2light.com/admin`, sign in, scan the QR code with an authenticator app (this is the first-sign-in 2-step step).
+5. In the admin panel (left menu **Settings**):
+   - **Business details**: name, tagline, support phone, colour.
+   - **Paystack secret key**: paste `sk_test_...` first (switch to live later).
+   - **Site agent keys**: Site `site-1`, Label `Site 1 PC` → **Create key**. **Copy the `nt_...` token now: shown once.**
+   Left menu **Plans**: create your plans. **Staff**: add the CEO and others.
+6. **Paystack dashboard → Settings → API Keys & Webhooks** → Webhook URL: `https://wifi.waste2light.com/v1/t/waste2light/webhooks/paystack`.
 
 ---
 
 ## Part 3. Site software (the mini-PC)
 
 ### 3.1 Prepare the machine
-1. Install Ubuntu Server 24.04 LTS. Set a static IP `192.168.88.2/24`, gateway `192.168.88.1`, DNS `1.1.1.1`.
+1. Install Ubuntu Server 24.04 LTS. Static address: edit `/etc/netplan/*.yaml` (address `192.168.88.2/24`, gateway `192.168.88.1`, DNS `1.1.1.1`), then `sudo netplan apply`.
 2. ```
    sudo apt update && sudo apt install -y freeradius freeradius-rest freeradius-utils iputils-ping snmp ufw
    sudo useradd --system --home /var/lib/wifi-bms --shell /usr/sbin/nologin wifibms
    sudo mkdir -p /etc/wifi-bms && sudo chown root:wifibms /etc/wifi-bms && sudo chmod 750 /etc/wifi-bms
+   sudo ufw allow from 192.168.88.1 to any port 1812,1813 proto udp
+   sudo ufw allow from 192.168.88.0/24 to any port 8043 proto tcp
+   sudo ufw allow ssh && sudo ufw enable
    ```
-3. Firewall: `sudo ufw allow from 192.168.88.1 to any port 1812,1813 proto udp && sudo ufw allow ssh && sudo ufw enable`.
-   (The agent listens on `127.0.0.1:8081` only; do not open it.)
+   The agent listens on `127.0.0.1:8081` only; do not open it.
+3. Install the Omada Software Controller now if you skipped it in Part 1.6.
 
-### 3.2 Omada Software Controller (if you chose the controller route)
-Download the Linux package from TP-Link's Omada Software Controller page, install it per TP-Link's instructions (it needs Java and MongoDB, which the
-package guide covers), then open `https://192.168.88.2:8043`, create the controller account, and **adopt** each AP (they appear under Devices; use
-the APs' management IPs). Create the customer SSID/VLAN 10 once and it is pushed to every AP. Then create the Open API app for the Devices page (docs/site-setup.md).
-
-### 3.3 Build and install the site agent
-On any computer with Rust (or on the mini-PC): `cargo build --release -p site-agent`, then copy `target/release/site-agent` to the mini-PC
-as `/usr/local/bin/site-agent` (`sudo chmod 755`). Same CPU type (x86-64) is required if you build elsewhere.
-
+### 3.2 Site agent
+Build on any x86-64 Linux with Rust (or on the mini-PC): `cargo build --release -p site-agent`; copy `target/release/site-agent` to the mini-PC as `/usr/local/bin/site-agent` and `sudo chmod 755` it.
 ```
 sudo cp deploy/site-agent.service /etc/systemd/system/
 sudo cp deploy/site-agent.env.example /etc/wifi-bms/site-agent.env
 sudo chown root:wifibms /etc/wifi-bms/site-agent.env && sudo chmod 640 /etc/wifi-bms/site-agent.env
 sudo nano /etc/wifi-bms/site-agent.env
 ```
-Set: `CENTRAL_URL=https://wifi.waste2light.com`, `NODE_TOKEN=nt_...` (from step 2.8), `LOCAL_KEY` (a long random string, `openssl rand -hex 24`),
-`COA_ADDR=192.168.88.1:3799`, `COA_SECRET` (the same value as the RADIUS secret you set on the router and in FreeRADIUS, steps 3.4 and 3.6), and
-`RADCLIENT_BIN=radclient`. Then `sudo systemctl daemon-reload && sudo systemctl enable --now site-agent`.
+Set `CENTRAL_URL=https://wifi.waste2light.com`, `NODE_TOKEN=nt_...` (Part 2 step 5), `LOCAL_KEY` (from your sheet), `COA_ADDR=192.168.88.1:3799`,
+`COA_SECRET` = your `RADIUS_SECRET`, `RADCLIENT_BIN=radclient`. Then:
+`sudo systemctl daemon-reload && sudo systemctl enable --now site-agent`.
 Check: `curl -H "X-Agent-Key: <LOCAL_KEY>" localhost:8081/healthz` and `journalctl -u site-agent -f`.
 
-### 3.4 FreeRADIUS
-1. Replace `/etc/freeradius/3.0/mods-available/rest` with `deploy/freeradius-rest.conf`, changing the `X-Agent-Key` header value to your `LOCAL_KEY`.
-   `sudo ln -s /etc/freeradius/3.0/mods-available/rest /etc/freeradius/3.0/mods-enabled/rest`.
-2. In `/etc/freeradius/3.0/sites-enabled/default`: in `authorize { }` add `rest` and `update control { Auth-Type := Accept }`; in `accounting { }` add `rest`
-   (as the comment at the bottom of the file says). Remove or comment other authentication modules (`pap`, `chap`, `files`) you do not need.
-3. In `/etc/freeradius/3.0/clients.conf` add the router:
+### 3.3 FreeRADIUS
+1. `sudo cp deploy/freeradius-rest.conf /etc/freeradius/3.0/mods-available/rest` and edit both `X-Agent-Key` lines to your `LOCAL_KEY`.
+   Enable: `sudo ln -s /etc/freeradius/3.0/mods-available/rest /etc/freeradius/3.0/mods-enabled/rest`.
+2. `sudo nano /etc/freeradius/3.0/sites-enabled/default`: in the `authorize { }` section add `rest` and `update control { Auth-Type := Accept }`; in `accounting { }` add `rest`.
+   Comment out modules you do not need there (`chap`, `files`, `pap`...).
+3. `sudo nano /etc/freeradius/3.0/clients.conf`, append:
    ```
    client mikrotik {
        ipaddr = 192.168.88.1
-       secret = radius-shared-secret
+       secret = <your RADIUS_SECRET>
    }
    ```
-   Use your own secret; it must equal the one in the router's `/radius` entry (3.6).
-4. Test in debug mode: `sudo systemctl stop freeradius && sudo freeradius -X`. Watch for `rest` loading without errors. This is the step most likely
-   to need small field-name changes, because it has not run on your machine yet. Then `sudo systemctl enable --now freeradius`.
+4. Test in the foreground: `sudo systemctl stop freeradius && sudo freeradius -X`. Look for `rest` loading without errors and, when a phone tries a login, the request reaching the agent.
+   This step is the most likely to need small field-name changes. Then `sudo systemctl enable --now freeradius`.
 
-### 3.5 Device monitoring (Devices page)
-Follow **docs/site-setup.md → Device monitoring**: copy `deploy/devices.example.json` to `/etc/wifi-bms/devices.json` (keep only what you have),
-`sudo chown root:wifibms ... && chmod 640`, set `DEVICES_FILE=/etc/wifi-bms/devices.json`, restart the agent. Create a read-only user on the router for it (shown there).
+### 3.4 Router logins (recheck)
+The same `RADIUS_SECRET` must be in: Winbox **RADIUS** entry, FreeRADIUS `clients.conf`, and `COA_SECRET` in the agent file.
 
-### 3.6 Router (RouterOS 7)
-Connect with Winbox or the terminal. Adjust names to your router.
-
-```
-# WAN and basic internet
-/ip dhcp-client add interface=ether1 disabled=no
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
-/ip dns set allow-remote-requests=yes servers=1.1.1.1,8.8.8.8
-
-# Management network on ether2 (untagged) - the mini-PC, APs and radios live here
-/ip address add address=192.168.88.1/24 interface=ether2
-
-# Customer network on VLAN 10
-/interface vlan add name=vlan10 vlan-id=10 interface=ether2
-/ip address add address=10.10.0.1/22 interface=vlan10
-/ip pool add name=hs-pool ranges=10.10.0.10-10.10.3.250
-/ip dhcp-server add name=hs-dhcp interface=vlan10 address-pool=hs-pool disabled=no
-/ip dhcp-server network add address=10.10.0.0/22 gateway=10.10.0.1 dns-server=10.10.0.1
-
-# Keep customers away from your equipment
-/ip firewall filter add chain=forward in-interface=vlan10 dst-address=192.168.88.0/24 action=drop comment="customers cannot reach management"
-/ip firewall filter add chain=input in-interface=vlan10 dst-port=22,23,8291,8728,8729 protocol=tcp action=drop comment="no router admin from customers"
-```
-Make sure the router's admin password is changed and that Winbox/SSH are reachable only from the management network.
-Do not block ports 80/443 on the router: the hotspot login page is served there.
-
-Hotspot:
-```
-/ip hotspot setup        # interface=vlan10, address 10.10.0.1/22, pool hs-pool, no SSL certificate, DNS as above, no local users
-```
-Then apply `deploy/routeros-hotspot.rsc` (edit the secret to match step 3.4.3; it points RADIUS at the mini-PC `192.168.88.2`, turns on accounting and
-CoA on port 3799, and sets the walled garden for the portal and Paystack). Upload `deploy/routeros-login.html` to **Files → hotspot/login.html**
-(replacing the default; set `site=site-1`). In the walled garden also allow `js.paystack.co` and `checkout.paystack.com` as listed in docs/deployment.md.
-
-Important: the `/ip hotspot profile set [find default]` line in the .rsc assumes the profile the wizard created is the default one. If your wizard named it otherwise,
-change `[find default]` to that profile's name. Also confirm `/radius incoming` is enabled. One secret is used in three places and must be identical: the router's `/radius` entry, FreeRADIUS `clients.conf`, and `COA_SECRET` in the agent env
-(RouterOS accepts CoA with the `/radius` entry's secret).
+### 3.5 Device monitoring (the Devices page)
+1. On the router create a read-only monitoring user. **System → Users → Groups → +**: name `readonly-api`, policies `read`, `api`, `rest-api` only. **Users → +**: name `agent`, group `readonly-api`, a long password.
+2. `sudo cp deploy/devices.example.json /etc/wifi-bms/devices.json` then `sudo nano` it: keep only what you own (see `docs/site-setup.md`).
+   Fill `routeros` (url `https://192.168.88.1`, user `agent`, password) and `omada` (url `https://192.168.88.2:8043`, the IDs and secret from Part 1.6); list each CPE in `ping`.
+3. `sudo chown root:wifibms /etc/wifi-bms/devices.json && sudo chmod 640 /etc/wifi-bms/devices.json`. Add `DEVICES_FILE=/etc/wifi-bms/devices.json` to `/etc/wifi-bms/site-agent.env`;
+   `sudo systemctl restart site-agent`. Devices appear within a minute at **admin → Devices**.
+4. CPE signal strength needs SNMP: on each CPE enable SNMP (in its web menu, usually under *System* or *Management* → **SNMP**), set a community, then from the mini-PC run
+   `snmpwalk -v2c -c <community> 192.168.88.10 .1.3.6.1.4.1` and look for the line that shows the current signal; put its OID in `metrics` (see `docs/site-setup.md`).
+   Until then the CPE still shows up/down, latency and loss.
 
 ---
 
-## Part 4. Test end to end
-
-1. **Agent online:** admin → Dashboard/Network shows the site; Devices shows your devices within a minute.
-2. **Access code:** admin → Vouchers → sell a manual voucher (or create a special one) → you get a code.
-3. **Phone test:** connect to the Wi-Fi SSID → the login page redirects to the portal → enter the code → the phone gets internet. Check that
-   the session appears under Customers and in the Devices page's client list.
-4. **Payment test:** buy a plan on the portal with a Paystack **test** key first; confirm the webhook marks the order paid, then switch to the live key.
-5. **Disconnect:** let a short plan end (or revoke the voucher): the phone must lose internet within about a minute (router CoA).
-6. **Failure drills:** unplug an AP (Devices shows it offline and the Error log gets a critical entry in ~3 minutes), then plug it in again (recovery entry).
-7. **Power drill:** pull mains power with the UPS in place: router, switch, mini-PC and APs should stay up.
+## Part 4. Test end to end (in this order)
+1. **admin → Network / Devices**: site online, devices listed.
+2. **admin → Vouchers → Sell a plan (cash or transfer)** → *Make a code* → Sell plan → copy the code.
+3. Phone: join `Waste2Light Wi-Fi`, the login page opens the portal, enter the code → internet works. It appears in **Customers**, and under **Devices** on its AP.
+4. **Payment**: buy a plan on the portal with the Paystack **test** key; confirm the order turns paid (**Orders & refunds**); then paste the live key in Settings.
+5. **Disconnect**: let a short plan end, or **Vouchers → Issued vouchers → Revoke**; the phone loses internet within about a minute.
+6. **Failure drill**: unplug an AP: after about 3 minutes **Devices** shows it Offline and **Error log** gets a critical entry; replug: a recovery entry.
+7. **Power drill**: switch off mains with the UPS connected; everything must stay up.
 
 ## Part 5. Before opening to the public
-- Change every default password (router, APs, CPEs, controller, mini-PC); keep a sealed copy of the passwords and `PLATFORM_MASTER_KEY` offline.
-- Replace `web/public/terms.html` with your reviewed terms and privacy notice (NDPA 2023, NCC rules).
-- Back up the database (docs/deployment.md → Backups).
-- Mount a spare AP and a spare power supply; label everything.
+Change every default password (router, switch, APs, CPEs, Omada, mini-PC), keep a sealed copy plus `PLATFORM_MASTER_KEY` offline; replace `web/public/terms.html`
+with reviewed terms and privacy notice (NDPA 2023, NCC rules); back up the database (`docs/deployment.md`); keep a spare AP and power supply.
 
 ## If something does not work
 | Symptom | Look at |
 |---|---|
-| Login page never appears | walled garden, `login.html` upload, hotspot enabled on `vlan10` |
-| Portal loads but "can't connect" after a code | admin → Error log (source `radius`/`agent`), `journalctl -u site-agent`, `freeradius -X` |
-| Paid but not connected | Paystack webhook URL, Error log (source `payments`) |
-| Devices page empty | `DEVICES_FILE` set? `journalctl -u site-agent`; Error log `hardware.collector_failed` |
-| CPE shows weak signal | realign the dish; check the Fresnel zone and connectors |
+| Phone gets no `10.10.x.x` address | hotspot wizard created DHCP on `vlan10`? switch port tagged for VLAN 10? SSID VLAN = 10? |
+| Login page never appears | **IP → Hotspot → Walled Garden**, `hotspot/login.html` uploaded, **IP → Hotspot → Servers** shows `vlan10` enabled |
+| Code rejected / no internet after code | **admin → Error log** (source radius/agent), `journalctl -u site-agent`, `freeradius -X`, the three secrets match |
+| Paid but not connected | Paystack webhook URL, **Error log** (source payments) |
+| Devices page empty | `DEVICES_FILE` set? `journalctl -u site-agent`; **Error log** `hardware.collector_failed` |
+| CPE signal weak | realign, check line of sight and connector sealing |
