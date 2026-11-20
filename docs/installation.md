@@ -161,19 +161,15 @@ Set `CENTRAL_URL=https://wifi.waste2light.com`, `NODE_TOKEN=nt_...` (Part 2 step
 Check: `curl -H "X-Agent-Key: <LOCAL_KEY>" localhost:8081/healthz` and `journalctl -u site-agent -f`.
 
 ### 3.3 FreeRADIUS
-1. `sudo cp deploy/freeradius-rest.conf /etc/freeradius/3.0/mods-available/rest` and edit both `X-Agent-Key` lines to your `LOCAL_KEY`.
-   Enable: `sudo ln -s /etc/freeradius/3.0/mods-available/rest /etc/freeradius/3.0/mods-enabled/rest`.
-2. `sudo nano /etc/freeradius/3.0/sites-enabled/default`: in the `authorize { }` section add `rest` and `update control { Auth-Type := Accept }`; in `accounting { }` add `rest`.
-   Comment out modules you do not need there (`chap`, `files`, `pap`...).
-3. `sudo nano /etc/freeradius/3.0/clients.conf`, append:
-   ```
-   client mikrotik {
-       ipaddr = 192.168.88.1
-       secret = <your RADIUS_SECRET>
-   }
-   ```
-4. Test in the foreground: `sudo systemctl stop freeradius && sudo freeradius -X`. Look for `rest` loading without errors and, when a phone tries a login, the request reaching the agent.
-   This step is the most likely to need small field-name changes. Then `sudo systemctl enable --now freeradius`.
+One command does everything (it was tested against FreeRADIUS 3.2: config check, accept with the rate limit, reject for a bad code,
+accounting start/interim/stop, and a safe reject when the agent is down). From the repo folder:
+```
+sudo bash deploy/install-freeradius.sh <LOCAL_KEY> 192.168.88.1 <RADIUS_SECRET>
+```
+`LOCAL_KEY` is the value in `/etc/wifi-bms/site-agent.env`; `RADIUS_SECRET` is the secret on the router's RADIUS entry; use letters and digits only.
+Success ends with `Configuration appears to be OK` and `FreeRADIUS restarted.` Backups of the files it edits are in `/etc/freeradius/3.0/wifibms-backup/`.
+Why not edit by hand: a `header =` line in the rest module is ignored by FreeRADIUS (the agent would reject every login), and the stock
+`tls = ${..tls}` line stops FreeRADIUS from loading at all; the script avoids both. Details: `deploy/freeradius-rest.conf`, `deploy/freeradius-wifibms.policy`.
 
 ### 3.4 Router logins (recheck)
 The same `RADIUS_SECRET` must be in: Winbox **RADIUS** entry, FreeRADIUS `clients.conf`, and `COA_SECRET` in the agent file.

@@ -1,0 +1,8 @@
+# Install as /etc/freeradius/3.0/policy.d/wifibms  (replace CHANGE_ME_LOCAL_KEY with LOCAL_KEY from the site agent env).
+# Calls the site agent with the shared key in the X-Agent-Key header.
+wifibms_rest {
+	update control {
+		&REST-HTTP-Header += "X-Agent-Key: CHANGE_ME_LOCAL_KEY"
+	}
+	rest
+}
