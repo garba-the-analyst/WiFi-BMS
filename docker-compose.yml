@@ -43,6 +43,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       TERMII_API_KEY: ${TERMII_API_KEY:-}
       TERMII_SENDER_ID: ${TERMII_SENDER_ID:-}
+      REQUIRE_2FA: ${REQUIRE_2FA:-1}
       RUST_LOG: info
     expose: ["8080"]
 

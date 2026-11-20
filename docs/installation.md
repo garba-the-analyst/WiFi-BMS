@@ -103,6 +103,8 @@ From the laptop on `192.168.88.0/24`: ping `192.168.88.1`, each AP and CPE. In W
 
 ## Part 2. Central platform (the VPS, once)
 
+> **No VPS?** Run everything on the site machine instead with a Cloudflare Tunnel: follow `docs/single-box.md` for this part, then continue at Part 3.
+
 1. **Cloudflare** (dash.cloudflare.com → your domain `waste2light.com`): **DNS → Records → Add record**: Type `A`, Name `wifi`, IPv4 = VPS address, Proxy on.
    **SSL/TLS → Overview** → **Full (strict)**. On the VPS firewall allow 80, 443 and SSH from your address only.
 2. On the VPS (Docker with Compose v2 installed):

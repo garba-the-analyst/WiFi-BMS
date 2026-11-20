@@ -7,5 +7,6 @@ COPY web/ ./
 RUN npm test && npm run build
 
 FROM caddy:2
+ARG CADDYFILE=deploy/Caddyfile
 COPY --from=web /web/dist /srv
-COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY ${CADDYFILE} /etc/caddy/Caddyfile

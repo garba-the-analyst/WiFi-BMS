@@ -1,0 +1,47 @@
+# SINGLE-MACHINE MODE (no VPS): used with docker-compose.tunnel.yml. TLS is terminated by Cloudflare; the Cloudflare Tunnel
+# container forwards plain HTTP to this server over the private docker network. Nothing is published on the host.
+# One host, one certificate:
+#   https://wifi.waste2light.com/        customer portal (captive portal, plans, member area)
+#   https://wifi.waste2light.com/admin   staff back office (same app; every /v1/.../admin call needs an at_ token)
+#   https://wifi.waste2light.com/v1/*    the API
+{
+	servers {
+		# Single-machine mode: cloudflared reaches this container over the private docker network and passes the visitor's
+		# address in CF-Connecting-IP. Trust only private ranges (the tunnel container), never the open internet.
+		trusted_proxies static private_ranges
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+http://{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+
+	# API. Only /v1 and the health check reach the application container.
+	@api path /v1/* /healthz
+	handle @api {
+		reverse_proxy api:8080 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+
+	# Everything else is the web app. Unknown paths fall back to index.html so /admin/customers etc. work on reload.
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@volatile path /config.json /index.html
+		header @volatile Cache-Control "no-store"
+		try_files {path} /index.html
+		file_server
+	}
+}

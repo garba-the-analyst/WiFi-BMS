@@ -1,0 +1,24 @@
+# SINGLE-MACHINE MODE: run the whole platform on the site machine, no VPS, no open ports.
+# Use together with docker-compose.yml (needs Docker Compose v2.24 or newer):
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+# Starlink puts you behind carrier-grade NAT, so nothing from the internet can reach this machine. A Cloudflare Tunnel makes an
+# outbound connection instead, and Cloudflare forwards https://$PUBLIC_HOST to Caddy through it. Full steps: docs/single-box.md
+services:
+  api:
+    # The site agent on this same machine talks to the API directly: CENTRAL_URL=http://127.0.0.1:8080
+    ports: ["127.0.0.1:8080:8080"]
+
+  caddy:
+    build:
+      context: .
+      dockerfile: deploy/caddy.Dockerfile
+      args: { CADDYFILE: deploy/Caddyfile.tunnel }
+    ports: !reset []
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on: [caddy]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN (Cloudflare Zero Trust -> Networks -> Tunnels)}
