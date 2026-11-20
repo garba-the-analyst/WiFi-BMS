@@ -46,6 +46,8 @@ Then open **New Terminal** (left menu) and paste, adjusting if you use other por
 /ip address add address=192.168.88.1/24 interface=ether2
 /interface vlan add name=vlan10 vlan-id=10 interface=ether2
 /ip address add address=10.10.0.1/22 interface=vlan10
+/ip firewall filter add chain=input in-interface=ether1 connection-state=established,related action=accept
+/ip firewall filter add chain=input in-interface=ether1 action=drop comment="drop everything else from the internet"
 /ip firewall filter add chain=forward in-interface=vlan10 dst-address=192.168.88.0/24 action=drop comment="customers cannot reach management"
 /ip firewall filter add chain=input in-interface=vlan10 protocol=tcp dst-port=22,23,8291,8728,8729 action=drop comment="no router admin from customers"
 ```
